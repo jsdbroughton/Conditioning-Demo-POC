@@ -194,8 +194,13 @@ class WallRecord:
 
     @property
     def is_coded(self) -> bool:
-        """True if this wall already has an Assembly Code."""
+        """True if this wall already has an Assembly Code (any format)."""
         return bool(self.assembly_code and self.assembly_code.strip())
+
+    @property
+    def is_level4_coded(self) -> bool:
+        """True if the Assembly Code is a Turner Level 4 sub-section code (e.g. B2010.10)."""
+        return bool(self.assembly_code and _LEVEL4_PATTERN.match(self.assembly_code.strip()))
 
 
 @dataclass
@@ -237,10 +242,21 @@ def _pval(group: dict, name: str):
 
 
 def get_assembly_code(wall_obj) -> Optional[str]:
-    """Extract Assembly Code from Identity Data > Type Parameters, or None."""
+    """Extract Assembly Code from Identity Data > Type Parameters, or None.
+
+    If the code looks like a Turner Level 4 code with the period accidentally
+    stripped (e.g. 'B201010' → 'B2010.10'), normalise it on the way in so it
+    is treated as already-coded Level 4 rather than needing upgrade.
+    ASTM Uniformat II codes (3-digit suffix, e.g. 'B2010160') are NOT affected.
+    """
     identity = _type_params(wall_obj).get("Identity Data", {})
     val = _pval(identity, "Assembly Code")
-    return str(val).strip() if val and str(val).strip() else None
+    if not val:
+        return None
+    raw = str(val).strip()
+    if not raw:
+        return None
+    return _try_normalise_to_level4(raw) or raw
 
 
 def get_wall_metadata(wall_obj) -> dict:
