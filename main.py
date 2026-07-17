@@ -686,30 +686,24 @@ def create_conditioned_version(
     predictions: list[Prediction],
 ) -> Optional[str]:
     """
-    Imprint predictions onto wall objects and create a new version in a
-    'Conditioned' model in the same project.
-
-    Uses automate_context.create_new_model_in_project +
-         automate_context.create_new_version_in_project
-    as provided by the speckle_automate SDK.
+    Imprint predictions onto wall objects and push a new version into the
+    'Conditioned' model (creating it on first run, reusing it thereafter).
 
     Returns the new version ID, or None on failure.
     """
     _imprint_predictions(walls, predictions)
 
     try:
-        # Create (or reuse) the target model
-        conditioned_model = automate_context.create_new_model_in_project(
+        model = _get_or_create_model(
+            automate_context,
             model_name="Conditioned",
             model_description="Walls with predicted Uniformat Assembly Codes — Conditioning Demo POC",
         )
-
         new_version = automate_context.create_new_version_in_project(
             root_object=root,
-            model_id=conditioned_model.id,
+            model_id=model.id,
             version_message="Uniformat Assembly Code predictions applied by Conditioning Demo POC",
         )
-
         return new_version.id
 
     except Exception as exc:
