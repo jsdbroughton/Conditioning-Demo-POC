@@ -15,7 +15,7 @@ dependencies = ["specklepy==2026.6.0"]
 dev = [
     "mypy==1.13.0",
     "pytest==9.1.1",
-    "ruff==0.11.12",
+    "ruff==0.15.22",
 ]
 
 [tool.ruff]
