@@ -1,6 +1,5 @@
-"""Run integration tests with a speckle server."""
+"""Integration tests for the Conditioning Demo POC automate function."""
 
-from pydantic import SecretStr
 from speckle_automate import (
     AutomationContext,
     AutomationRunData,
@@ -15,7 +14,7 @@ from main import FunctionInputs, automate_function
 def test_function_run(
     test_automation_run_data: AutomationRunData, test_automation_token: str
 ):
-    """Run an integration test for the automate function."""
+    """Run an integration test against the configured test model."""
     automation_context = AutomationContext.initialize(
         test_automation_run_data, test_automation_token
     )
@@ -23,8 +22,7 @@ def test_function_run(
         automation_context,
         automate_function,
         FunctionInputs(
-            forbidden_speckle_type="None",
-            whisper_message=SecretStr("testing automatically"),
+            confidence_threshold=0.65,
         ),
     )
 
