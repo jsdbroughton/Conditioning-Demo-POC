@@ -424,16 +424,25 @@ def _heuristic_predict(wall: WallRecord) -> tuple[str, str, str]:
 
 
 def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]:
-    """For each uncoded wall: similarity match → heuristic fallback → default."""
-    coded   = [w for w in walls if w.is_coded]
-    uncoded = [w for w in walls if not w.is_coded]
+    """Predict Turner Level 4 codes for walls that don't have one yet.
+
+    Reference pool: walls that already carry a Turner Level 4 code — these are
+    the gold-standard examples for similarity matching.
+
+    Prediction targets: walls with NO code AND walls whose existing code is NOT
+    Turner Level 4 format (e.g. ASTM codes like B2010160 that need upgrading).
+    """
+    # Only Level4-coded walls are valid similarity references
+    reference  = [w for w in walls if w.is_level4_coded]
+    # Everything else needs a prediction (no code OR wrong format)
+    needs_pred = [w for w in walls if not w.is_level4_coded]
     predictions: list[Prediction] = []
 
-    for wall in uncoded:
+    for wall in needs_pred:
         best_score = 0.0
         best_ref: Optional[WallRecord] = None
 
-        for ref in coded:
+        for ref in reference:
             score = fingerprint_similarity(wall, ref)
             if score > best_score:
                 best_score = score
@@ -473,10 +482,12 @@ def build_report(
     threshold: float,
 ) -> str:
     """Build a markdown conditioning report."""
-    coded      = [w for w in walls if w.is_coded]
-    uncoded    = [w for w in walls if not w.is_coded]
-    sim_preds  = [p for p in predictions if p.method == "similarity"]
-    heur_preds = [p for p in predictions if p.method != "similarity"]
+    coded           = [w for w in walls if w.is_coded]
+    level4          = [w for w in walls if w.is_level4_coded]
+    non_level4_coded = [w for w in walls if w.is_coded and not w.is_level4_coded]
+    uncoded         = [w for w in walls if not w.is_coded]
+    sim_preds       = [p for p in predictions if p.method == "similarity"]
+    heur_preds      = [p for p in predictions if p.method != "similarity"]
 
     lines = [
         "# Conditioning Demo POC — Uniformat Prediction Report",
@@ -486,30 +497,48 @@ def build_report(
         "| Metric | Count |",
         "|--------|-------|",
         f"| Total walls analysed | {len(walls)} |",
-        f"| Already coded (reference set) | {len(coded)} |",
-        f"| Uncoded (predictions generated) | {len(uncoded)} |",
+        "",
+        "**Validation**",
+        "",
+        "| Metric | Count |",
+        "|--------|-------|",
+        f"| Has Turner Level 4 code (e.g. B2010.10) | {len(level4)} |",
+        f"| Has code but NOT Turner Level 4 format (needs review) | {len(non_level4_coded)} |",
+        f"| No code at all (uncoded) | {len(uncoded)} |",
+        "",
+        "**Conditioning**",
+        "",
+        "| Metric | Count |",
+        "|--------|-------|",
         f"| Predicted via similarity match | {len(sim_preds)} |",
         f"| Predicted via heuristic / default | {len(heur_preds)} |",
         f"| Confidence threshold | {threshold} |",
         "",
         "---",
         "",
-        "## Reference Codes (already coded walls)",
+        "## Non-Level4 Codes (upgraded by conditioning)",
         "",
-        "| Type Name | Type Mark | Function | Width (mm) | Code |",
-        "|-----------|-----------|----------|------------|------|",
+        "These walls had existing codes in a non-Turner-Level4 format. "
+        "A predicted Level 4 code has been applied; the original code is "
+        "preserved in the `Original Assembly Code (upgraded)` property for review.",
+        "",
+        "| Type Name | Type Mark | Function | Width (mm) | Original Code |",
+        "|-----------|-----------|----------|------------|---------------|",
     ]
 
-    code_counts: Counter = Counter()
-    code_meta: dict = {}
-    for w in coded:
+    nl4_counts: Counter = Counter()
+    nl4_meta: dict = {}
+    for w in non_level4_coded:
         key = (w.type_name, w.assembly_code)
-        code_counts[key] += 1
-        code_meta[key] = (w.type_mark, w.function, round(w.width_mm))
+        nl4_counts[key] += 1
+        nl4_meta[key] = (w.type_mark, w.function, round(w.width_mm))
 
-    for (type_name, code), count in sorted(code_counts.items(), key=lambda x: x[1][1] or ""):
-        tm, fn, ww = code_meta.get((type_name, code), ("", "", 0))
-        lines.append(f"| {type_name} | {tm} | {fn} | {ww} | `{code}` ×{count} |")
+    if nl4_counts:
+        for (type_name, code), count in sorted(nl4_counts.items(), key=lambda x: x[0][1] or ""):
+            tm, fn, ww = nl4_meta.get((type_name, code), ("", "", 0))
+            lines.append(f"| {type_name} | {tm} | {fn} | {ww} | `{code}` ×{count} |")
+    else:
+        lines.append("| — | — | — | — | _none_ |")
 
     lines += [
         "",
@@ -534,21 +563,47 @@ def build_report(
         "",
         "---",
         "",
-        "## Code Distribution (coded + predicted)",
+        "## Elements Not Conditioned (already Turner Level 4)",
+        "",
+        "These walls already carry a Turner Level 4 code and were passed through unchanged.",
+        "",
+        "| Type Name | Type Mark | Function | Width (mm) | Code | Count |",
+        "|-----------|-----------|----------|------------|------|-------|",
+    ]
+
+    level4_counts: Counter = Counter()
+    level4_meta: dict = {}
+    for w in level4:
+        key = (w.type_name, w.assembly_code)
+        level4_counts[key] += 1
+        level4_meta[key] = (w.type_mark, w.function, round(w.width_mm))
+
+    if level4_counts:
+        for (type_name, code), count in sorted(level4_counts.items(), key=lambda x: x[0][1] or ""):
+            tm, fn, ww = level4_meta.get((type_name, code), ("", "", 0))
+            lines.append(f"| {type_name} | {tm} | {fn} | {ww} | `{code}` | {count} |")
+    else:
+        lines.append("| — | — | — | — | _none_ | 0 |")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Final Code Distribution (all elements)",
         "",
         "| Code | Description | Count |",
         "|------|-------------|-------|",
     ]
 
     dist: dict[str, int] = defaultdict(int)
-    for w in coded:
+    for w in level4:
         if w.assembly_code:
             dist[w.assembly_code] += 1
     for p in predictions:
         dist[p.predicted_code] += 1
 
     for code in sorted(dist):
-        lines.append(f"| `{code}` | {UNIFORMAT_LABELS.get(code, code)} | {dist[code]} |")
+        lines.append(f"| `{code}` | {TURNER_CODES.get(code, code)} | {dist[code]} |")
 
     lines += ["", "---", "_Generated by Conditioning Demo POC · Speckle Automate_"]
     return "\n".join(lines)
@@ -560,39 +615,68 @@ def build_report(
 
 
 def _imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) -> None:
-    """Mutate uncoded wall objects in-place to embed predicted Assembly Codes."""
+    """Mutate wall objects in-place to embed codes inside the properties dict."""
     pred_map = {p.wall.object_id: p for p in predictions}
 
     for wall in walls:
+        obj  = wall.obj
         pred = pred_map.get(wall.object_id)
-        if not pred:
-            continue
 
-        obj = wall.obj
+        # Write into obj.properties (the existing dict) so values appear under
+        # the "properties" section in the Speckle viewer, not at the top level.
+        props = getattr(obj, "properties", None)
+        if not isinstance(props, dict):
+            # Shouldn't happen for a real Revit wall, but guard gracefully
+            props = {}
+            obj["properties"] = props
 
-        # Top-level annotation — always readable downstream
-        obj["conditioningPrediction"] = {
-            "predictedAssemblyCode": pred.predicted_code,
-            "confidence":            pred.confidence,
-            "method":                pred.method,
-            "matchedFrom":           pred.matched_from or "",
-            "description":           pred.description,
-        }
+        if wall.is_level4_coded:
+            # Already correct — surface it under the standard property name
+            props["Turner Level 4 Code"] = wall.assembly_code
+        elif pred:
+            # Predicted (covers both truly uncoded and non-Level4 coded walls)
+            props["Conditioned Turner Level 4 Code"]            = pred.predicted_code
+            props["Conditioned Turner Level 4 Code Confidence"] = pred.confidence
+            props["Conditioned Turner Level 4 Code Method"]     = pred.method
+            if wall.is_coded:
+                # Preserve the original code so reviewers can compare
+                props["Original Assembly Code (upgraded)"] = wall.assembly_code
 
-        # Best-effort: mirror into Identity Data alongside existing params
-        try:
-            props = getattr(obj, "properties", None)
-            if isinstance(props, dict):
-                params   = props.setdefault("Parameters", {})
-                tp       = params.setdefault("Type Parameters", {})
-                identity = tp.setdefault("Identity Data", {})
-                identity["Assembly Code (Predicted)"] = {
-                    "value": pred.predicted_code,
-                    "name":  "Assembly Code (Predicted)",
-                    "internalDefinitionName": "ASSEMBLY_CODE_PREDICTED",
-                }
-        except Exception:
-            pass  # top-level annotation above is the canonical output
+
+def _get_or_create_model(automate_context: AutomationContext, model_name: str, model_description: str):
+    """
+    Return a model object with an .id attribute, creating it if it doesn't exist.
+
+    create_new_model_in_project raises BRANCH_CREATE_ERROR when the model already
+    exists (subsequent runs). In that case we use client.model.get_models with a
+    name search filter — the specklepy 3.x SDK API, which replaced client.branch.
+    """
+    try:
+        return automate_context.create_new_model_in_project(
+            model_name=model_name,
+            model_description=model_description,
+        )
+    except Exception as exc:
+        if "already exists" not in str(exc).lower() and "BRANCH_CREATE_ERROR" not in str(exc):
+            raise
+
+    # Model exists from a previous run — look it up by name via the SDK
+    from specklepy.core.api.inputs.project_inputs import ProjectModelsFilter
+
+    client     = automate_context.speckle_client
+    project_id = automate_context.automation_run_data.project_id
+
+    collection = client.model.get_models(
+        project_id,
+        models_filter=ProjectModelsFilter(search=model_name),
+    )
+    match = next(
+        (m for m in (collection.items or []) if m.name == model_name),
+        None,
+    )
+    if not match:
+        raise RuntimeError(f"Model '{model_name}' not found in project {project_id} after creation failed")
+    return match
 
 
 def create_conditioned_version(
