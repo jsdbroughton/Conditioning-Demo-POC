@@ -13,7 +13,7 @@ dependencies = ["specklepy==2026.6.0"]
 
 [project.optional-dependencies]
 dev = [
-    "mypy==1.13.0",
+    "mypy==2.3.0",
     "pytest==9.1.1",
     "ruff==0.15.22",
 ]
