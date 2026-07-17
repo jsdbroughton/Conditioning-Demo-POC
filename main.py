@@ -731,39 +731,72 @@ def automate_function(
         )
         return
 
-    coded   = [w for w in walls if w.is_coded]
-    uncoded = [w for w in walls if not w.is_coded]
+    coded           = [w for w in walls if w.is_coded]
+    level4          = [w for w in walls if w.is_level4_coded]
+    non_level4_coded = [w for w in walls if w.is_coded and not w.is_level4_coded]
+    uncoded         = [w for w in walls if not w.is_coded]
+
+    print(
+        f"[ConditioningPOC] "
+        f"{len(coded)} with any code "
+        f"({len(level4)} Turner Level 4, {len(non_level4_coded)} other format), "
+        f"{len(uncoded)} uncoded."
+    )
 
     # 2. Predict codes for uncoded walls
     predictions = predict_codes(walls, function_inputs.confidence_threshold)
 
-    # 3. Per-object viewer annotations
-    for wall in coded:
+    # 3. Per-object viewer annotations — grouped so each unique code/message is
+    #    one result entry with all matching objects attached, rather than one
+    #    entry per wall.
+
+    # Turner Level 4 coded walls — gold standard, highlight separately
+    level4_by_code: dict[str, list] = defaultdict(list)
+    for wall in level4:
+        level4_by_code[wall.assembly_code or ""].append(wall.obj)
+    for code, objs in sorted(level4_by_code.items()):
         automate_context.attach_info_to_objects(
-            category="Uniformat — Existing Code",
-            affected_objects=[wall.obj],
-            message=f"Assembly Code: {wall.assembly_code}",
+            category="Uniformat — Turner Level 4 Code",
+            affected_objects=objs,
+            message=f"Level 4 code: {code} ({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
+    # Non-Level4 coded walls — has a code but not Turner Level 4 format
+    non_l4_by_code: dict[str, list] = defaultdict(list)
+    for wall in non_level4_coded:
+        non_l4_by_code[wall.assembly_code or ""].append(wall.obj)
+    for code, objs in sorted(non_l4_by_code.items()):
+        automate_context.attach_info_to_objects(
+            category="Uniformat — Non-Level4 Code (needs review)",
+            affected_objects=objs,
+            message=f"Code {code!r} is not Turner Level 4 format — review required "
+                    f"({len(objs)} element{'s' if len(objs) != 1 else ''})",
+        )
+
+    # Predictions: group by (category, predicted_code)
+    pred_groups: dict[tuple[str, str], list] = defaultdict(list)
+    pred_group_labels: dict[tuple[str, str], str] = {}
     for pred in predictions:
         if pred.method == "similarity":
             cat = "Uniformat — Predicted (similarity)"
-            msg = (
-                f"Predicted: {pred.predicted_code} "
-                f"({pred.confidence:.0%} confidence) "
-                f"← matched to '{pred.matched_from}'"
-            )
+            key = (cat, pred.predicted_code)
+            pred_group_labels.setdefault(key, pred.predicted_code)
         elif pred.method.startswith("heuristic"):
             cat = "Uniformat — Predicted (heuristic)"
-            msg = f"Predicted: {pred.predicted_code} — {pred.description}"
+            key = (cat, pred.predicted_code)
+            pred_group_labels.setdefault(key, f"{pred.predicted_code} — {pred.description}")
         else:
             cat = "Uniformat — Predicted (default fallback)"
-            msg = f"Predicted: {pred.predicted_code} (low confidence — review manually)"
+            key = (cat, pred.predicted_code)
+            pred_group_labels.setdefault(key, f"{pred.predicted_code} (low confidence — review manually)")
+        pred_groups[key].append(pred.wall.obj)
 
+    for (cat, _code), objs in sorted(pred_groups.items()):
+        label = pred_group_labels[(cat, _code)]
         automate_context.attach_info_to_objects(
             category=cat,
-            affected_objects=[pred.wall.obj],
-            message=msg,
+            affected_objects=objs,
+            message=f"Predicted: {label} ({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
     # 4. Conditioning report
@@ -783,10 +816,13 @@ def automate_function(
     # 6. Success summary
     sim_count  = sum(1 for p in predictions if p.method == "similarity")
     heur_count = len(predictions) - sim_count
+    needs_pred_count = len(uncoded) + len(non_level4_coded)
     summary = (
         f"Processed {len(walls)} walls — "
-        f"{len(coded)} already coded, "
-        f"{len(uncoded)} predicted "
+        f"{len(level4)} already Turner Level 4, "
+        f"{len(non_level4_coded)} non-Level4 codes upgraded, "
+        f"{len(uncoded)} uncoded — "
+        f"{needs_pred_count} predicted "
         f"({sim_count} similarity, {heur_count} heuristic)."
     )
     if new_version_id:
