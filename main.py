@@ -32,7 +32,6 @@ from typing import Optional
 
 from pydantic import Field
 from speckle_automate import AutomateBase, AutomationContext, execute_automate_function
-from specklepy.objects.graph_traversal.traversal import GraphTraversal
 
 
 # ---------------------------------------------------------------------------
@@ -279,27 +278,76 @@ def get_wall_metadata(wall_obj) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _get_category(obj) -> Optional[str]:
+    """Get category from a Speckle object, trying multiple access patterns."""
+    # 1. Top-level attribute (confirmed in viewer: RevitObject has .category)
+    cat = getattr(obj, "category", None)
+    if cat:
+        return str(cat)
+    # 2. Dict-style access (Base dynamic properties)
+    try:
+        cat = obj["category"]
+        if cat:
+            return str(cat)
+    except (KeyError, TypeError, AttributeError):
+        pass
+    # 3. Inside properties dict (fallback)
+    props = getattr(obj, "properties", None)
+    if isinstance(props, dict):
+        cat = props.get("category")
+        if cat:
+            return str(cat)
+    return None
+
+
+def _recursive_collect(obj, walls: list, visited: set) -> None:
+    """Recursively walk the object graph, collecting wall elements."""
+    obj_id = getattr(obj, "id", None) or id(obj)
+    if obj_id in visited:
+        return
+    visited.add(obj_id)
+
+    category = _get_category(obj)
+    if category == "Walls":
+        speckle_id = getattr(obj, "id", None) or ""
+        if speckle_id:
+            meta = get_wall_metadata(obj)
+            walls.append(WallRecord(
+                obj=obj,
+                object_id=speckle_id,
+                assembly_code=get_assembly_code(obj),
+                **meta,
+            ))
+
+    # Recurse into all member properties
+    for prop_name in obj.get_member_names():
+        if prop_name in ("displayValue", "renderMaterial"):
+            continue  # skip geometry — not BIM data
+        try:
+            value = getattr(obj, prop_name, None)
+        except Exception:
+            continue
+        if value is None:
+            continue
+        if hasattr(value, "get_member_names"):
+            _recursive_collect(value, walls, visited)
+        elif isinstance(value, list):
+            for item in value:
+                if item is not None and hasattr(item, "get_member_names"):
+                    _recursive_collect(item, walls, visited)
+
+
 def collect_walls(root) -> list[WallRecord]:
-    """Traverse the full object graph and return all Revit wall elements."""
-    traversal = GraphTraversal([])
+    """Traverse the full object graph and return all Revit wall elements.
+
+    Uses a manual recursive traversal as the primary strategy — GraphTraversal
+    with empty rules can miss leaf objects nested inside Collections.
+    """
     walls: list[WallRecord] = []
+    visited: set = set()
+    _recursive_collect(root, walls, visited)
 
-    for context in traversal.traverse(root):
-        obj = context.current
-        # category is a top-level attribute in the v3 Revit connector
-        if getattr(obj, "category", None) != "Walls":
-            continue
-        obj_id = getattr(obj, "id", None) or ""
-        if not obj_id:
-            continue
-        meta = get_wall_metadata(obj)
-        walls.append(WallRecord(
-            obj=obj,
-            object_id=obj_id,
-            assembly_code=get_assembly_code(obj),
-            **meta,
-        ))
-
+    print(f"[ConditioningPOC] Visited {len(visited)} objects, found {len(walls)} walls.")
     return walls
 
 
