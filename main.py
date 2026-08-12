@@ -125,22 +125,45 @@ def automate_function(
         automate_context, root, walls, predictions
     )
 
-    # 6. Success summary
-    sim_count  = sum(1 for p in predictions if p.method == "similarity")
-    cat_count  = sum(1 for p in predictions if p.method == "heuristic_category")
-    heur_count = len(predictions) - sim_count - cat_count
-    tier1 = sum(1 for p in predictions if p.tier == 1)
+    # 6. Success summary — leads with the outcome (what changed and how
+    # trustworthy it is), not a raw tally, since this is the headline a
+    # reviewer sees on the run report before opening anything.
+    sim_count   = sum(1 for p in predictions if p.method == "similarity")
+    cat_count   = sum(1 for p in predictions if p.method == "heuristic_category")
+    tier1_count = sum(1 for p in predictions if p.tier == 1)
+    tier2_count = sum(1 for p in predictions if p.tier == 2)
+    tier3_count = sum(1 for p in predictions if p.tier == 3)
+
+    # Tier 3 gets called out on its own, not folded into "Tier 2/3" — Tier 2
+    # means "quick check", Tier 3 means "a human actually needs to look at
+    # this one" (see codes.py's tier definitions), and that distinction
+    # shouldn't get lost in the headline just because both are non-Tier-1.
+    if not predictions:
+        confidence_note = "nothing needed conditioning"
+    elif tier3_count:
+        confidence_note = (
+            f"{tier1_count} at Tier 1, {tier2_count} at Tier 2, "
+            f"{tier3_count} at Tier 3 — those genuinely need a closer look, "
+            f"not just a quick check"
+        )
+    elif tier2_count:
+        confidence_note = f"{tier1_count} at Tier 1, {tier2_count} flagged Tier 2 for a quick review"
+    else:
+        confidence_note = "every prediction landed at Tier 1 — no manual triage needed"
+
     summary = (
-        f"Processed {len(walls)} elements — "
-        f"{len(classification.level4)} already Turner Level 4, "
+        f"Auto-conditioned all {len(walls)} wall elements to Turner Uniformat Level 4 "
+        f"in one pass — {len(classification.level4)} already correct, "
         f"{len(classification.non_level4_coded)} legacy codes remapped, "
-        f"{len(classification.uncoded)} newly predicted — "
-        f"{len(predictions)} total predictions applied "
-        f"({sim_count} similarity, {cat_count} curtain wall category match, "
-        f"{heur_count} other heuristic; {tier1} Tier 1)."
+        f"{len(classification.uncoded)} classified from a blank Assembly Code. "
+        f"{confidence_note}."
     )
+    if sim_count:
+        summary += f" {sim_count} matched directly against an already-coded reference wall."
+    if cat_count:
+        summary += f" {cat_count} classified via Revit's own curtain wall category."
     if new_version_id:
-        summary += f" Conditioned model version: {new_version_id}"
+        summary += f" Conditioned model: {new_version_id}"
 
     automate_context.mark_run_success(summary)
 

@@ -114,18 +114,44 @@ METHOD_CONFIDENCE = {
     "default": 0.0,
 }
 
-# Three-tier human-in-the-loop rating, banded on the same confidence values
-# as METHOD_CONFIDENCE above (so heuristic_function lands exactly on the
-# Tier 1 boundary, heuristic_name on Tier 2, default on Tier 3). This mirrors
-# the tiering described live on the 2026-07-17 Turner call:
+# Three-tier human-in-the-loop rating. This mirrors the tiering described
+# live on the 2026-07-17 Turner call:
 #   Tier 1 — high confidence, candidate for auto-accept
 #   Tier 2 — medium confidence, propagate but flag for a quick human check
 #   Tier 3 — low/no confidence, needs a human to look at it
 # As of 2026-08-12 direction: everything is auto-applied regardless of tier
 # for this POC — the tier is recorded, not yet enforced as a gate. That gate
 # is the direction of travel, not implemented here.
-TIER_1_THRESHOLD = 0.75
+#
+# TIER_1_THRESHOLD = 0.85, matching heuristic_category's base confidence —
+# NOT heuristic_function's (0.75). Originally set to 0.75, which meant a
+# single, uncorroborated Function-parameter match alone was enough to earn
+# "Tier 1 — candidate for auto-accept". That's too permissive: one parameter,
+# unconfirmed by anything else, isn't the same kind of confidence as Revit's
+# own authoritative category assignment. At 0.85, Tier 1 now means either
+# an authoritative signal (heuristic_category) on its own, or a heuristic
+# match independently corroborated by a second signal on the same wall
+# (see CORROBORATION_BONUS below) — a bare heuristic_function match (0.75)
+# now lands in Tier 2 unless something else on the wall agrees with it.
+TIER_1_THRESHOLD = 0.85
 TIER_2_THRESHOLD = 0.50
+
+# Per-object confidence adjustment for heuristic predictions. METHOD_CONFIDENCE
+# above is the base trust in a *signal type* (Revit's own category assignment
+# is more reliable than a keyword match) — on its own that makes every wall
+# classified by the same method land on an identical score, which isn't a
+# real per-object confidence, just a per-method one. These adjust that base
+# up or down per wall depending on whether OTHER independent signals on the
+# same wall agree or disagree with the strongest one (see
+# predict._heuristic_predict): a wall where category, Function, and a type-
+# name keyword all point to the same code is more trustworthy than one
+# where only a single weak signal fired; a wall where signals actively
+# contradict each other (e.g. category says curtain wall but Function says
+# "Interior") is a genuine data inconsistency worth flagging with lower
+# confidence, not averaging away.
+CORROBORATION_BONUS = 0.10
+CORROBORATION_CAP = 0.95   # stays below 1.0 — still a heuristic, never a genuine reference-wall match
+CONFLICT_PENALTY = 0.15
 
 
 def confidence_to_tier(confidence: float) -> int:
