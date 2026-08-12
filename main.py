@@ -53,6 +53,19 @@ class FunctionInputs(AutomateBase):
         le=1.0,
     )
 
+    @classmethod
+    def model_json_schema(cls, **kwargs) -> dict:
+        """Strip the JSON Schema dialect declaration for GitHub Action compatibility.
+
+        AutomateGenerateJsonSchema adds '$schema: https://json-schema.org/draft/2020-12/schema'
+        but the speckle-automate-github-action uses an AJV version that doesn't load that
+        meta-schema, causing registration to fail with 'no schema with key or ref' error.
+        Removing the field lets AJV use its default validation mode.
+        """
+        schema = super().model_json_schema(**kwargs)
+        schema.pop("$schema", None)
+        return schema
+
 
 # ---------------------------------------------------------------------------
 # Turner Uniformat code reference
