@@ -72,44 +72,46 @@ Create a new repo from this template, and use the create new code.
 
 ## Developer Requirements
 
-1. Install the following:
-    - [Python 3.11+](https://www.python.org/downloads/)
+We use [uv](https://docs.astral.sh/uv/) for dependency management — it reads
+`pyproject.toml` and the committed `uv.lock` directly, so there's no separate
+requirements file to keep in sync, and installs are reproducible (`uv.lock`
+pins exact versions; `mise.toml` pins the Python version).
+
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/).
 1. Run the following to set up your development environment:
     ```bash
-    python -m venv .venv
-    # On Windows
-    .venv\Scripts\activate
-    # On macOS/Linux
-    source .venv/bin/activate
-
-    pip install --upgrade pip
-    pip install .[dev]
+    uv sync
     ```
 
 **What this installs:**
 - All the packages your function needs to run (`dependencies`)
-- Plus development tools like testing and code formatting (`[project.optional-dependencies].dev`)
+- Plus development tools like testing and linting (`[project.optional-dependencies].dev`)
+- The local `conditioning` package itself (this project uses a `src/` layout —
+  see `src/conditioning/__init__.py` for the module map; `main.py` at the repo
+  root stays a standalone orchestrator script outside the installed package)
 
-**Why separate sections?**
-- `dependencies`: Only what gets deployed with your function (lightweight)
+Prefix commands with `uv run` to run them inside the managed environment
+without activating it, e.g. `uv run pytest`, `uv run python main.py ...`.
+
+**Why separate `dependencies` / `dev` sections in `pyproject.toml`?**
+- `dependencies`: Only what gets deployed with your function (lightweight) —
+  this is what `uv sync --no-dev` (and the Dockerfile) install
 - `dev` dependencies: Extra tools to help you write better code locally
 
 ## Building and Testing
 
-The code can be tested locally by running `pytest`.
+The code can be tested locally by running `uv run pytest`.
 
 ### Alternative dependency managers
 
-This template uses the modern **PEP 621** standard in `pyproject.toml`, which works with all modern Python dependency managers:
+This template uses the modern **PEP 621** standard in `pyproject.toml`, which
+also works with other dependency managers if you'd rather not use uv — though
+note the committed `uv.lock` won't be respected by these, so pinned versions
+may drift:
 
 #### Using Poetry
 ```bash
 poetry install  # Automatically reads pyproject.toml
-```
-
-#### Using uv
-```bash
-uv sync  # Automatically reads pyproject.toml
 ```
 
 #### Using pip-tools
@@ -122,8 +124,6 @@ pip install -r requirements.txt
 ```bash
 pdm install  # Automatically reads pyproject.toml
 ```
-
-**Advantage**: All tools read the same `pyproject.toml` file, so there's no need to keep multiple files in sync!
 
 ### Building and running the Docker Container Image
 
