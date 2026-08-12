@@ -212,6 +212,10 @@ def create_conditioned_version(
     folder separator, so 'Conditioned/<name>' groups all conditioned output
     under one parent in the model tree while keeping each source distinct.
 
+    Also adds this new artifact version to the Automate run's context view
+    (the "View Results" link), alongside the host model — see the comment
+    at the set_context_view() call below.
+
     Returns the new version ID, or None on failure.
     """
     imprint_predictions(walls, predictions)
@@ -233,6 +237,28 @@ def create_conditioned_version(
             model_id=model.id,
             version_message="Uniformat Assembly Code predictions applied by Conditioning Demo POC",
         )
+
+        # Add the conditioned output to the run's "View Results" viewer
+        # alongside the host model (include_source_model_version=True, the
+        # SDK default) rather than replacing it. The host model has to stay
+        # in view: attach_viewer_annotations() (called earlier, against the
+        # unmutated wall objects) records each result's Speckle object id,
+        # and that id is fixed at receive time — it never gets reassigned to
+        # match the mutated/re-hashed objects pushed to the artifact model
+        # (confirmed against specklepy's serializer, see NOTES.md). So the
+        # interactive per-object highlight markers only resolve against a
+        # scene that still has the host model loaded. Adding the artifact
+        # model as an extra resource just means reviewers can also inspect
+        # the actual Turner UF Code output in the same viewer, overlaid
+        # rather than swapped in.
+        try:
+            automate_context.set_context_view(
+                resource_ids=[f"{model.id}@{new_version.id}"],
+                include_source_model_version=True,
+            )
+        except Exception as exc:
+            print(f"[ConditioningPOC] Could not add artifact model to results view: {exc}")
+
         return new_version.id
 
     except Exception as exc:
