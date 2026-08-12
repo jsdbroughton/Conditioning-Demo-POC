@@ -137,11 +137,26 @@ def confidence_to_tier(confidence: float) -> int:
     return 3
 
 
+# Text labels for the tier band, used wherever Tier is written out as a
+# property value (e.g. onto Speckle objects) rather than used internally for
+# counting/sorting. A raw int (1/2/3) reads ambiguously once it's sitting in
+# a properties panel or an exported table next to other numeric parameters —
+# "Tier 1" is self-explanatory even out of context. Prediction.tier itself
+# stays an int (see predict.py) since internal logic (counting, thresholds,
+# a future auto-accept gate) wants to compare/sort on it.
+TIER_LABELS: dict[int, str] = {1: "Tier 1", 2: "Tier 2", 3: "Tier 3"}
+
+
+def tier_label(tier: int) -> str:
+    """Render a numeric tier (1/2/3) as its display text ('Tier 1')."""
+    return TIER_LABELS.get(tier, f"Tier {tier}")
+
+
 # All conditioning output is written under this single namespaced key inside
 # wall.properties, rather than as several flat sibling keys — keeps the
 # viewer/report/PowerBI surface predictable (one place to look) and avoids
 # ever colliding with a real Revit parameter name.
-CONDITIONING_KEY = "Turner Assembly Code"
+CONDITIONING_KEY = "Turner UF Code"
 
 # Matches Turner Level 4 sub-section codes: one capital letter, 4 digits, dot, 1-2 digits
 # e.g. B2010.10, C1010.40, A2010.10
