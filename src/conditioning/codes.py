@@ -103,20 +103,45 @@ DEFAULT_CODE = ("B2010.10", "Exterior Wall Veneer (default fallback)")
 # Confidence assigned to non-similarity predictions, keyed by method. These are
 # fixed estimates of how much to trust each signal — NOT derived from the
 # similarity score, which is meaningless when there's no reference wall to
-# compare against (see predict.predict_codes). Ordering matches the
-# reliability described in the module docstring: Revit's own Function param
-# is the strongest signal, then keyword matching, then blind default.
+# compare against (see predict.predict_codes). Ordering matches reliability:
+# Revit's own element category (e.g. "Curtain Systems") is the single most
+# authoritative signal available — it's not a guess, Revit assigned it — then
+# the Function parameter, then keyword matching, then blind default.
 METHOD_CONFIDENCE = {
+    "heuristic_category": 0.85,
     "heuristic_function": 0.75,
     "heuristic_name": 0.50,
     "default": 0.0,
 }
 
+# Three-tier human-in-the-loop rating, banded on the same confidence values
+# as METHOD_CONFIDENCE above (so heuristic_function lands exactly on the
+# Tier 1 boundary, heuristic_name on Tier 2, default on Tier 3). This mirrors
+# the tiering described live on the 2026-07-17 Turner call:
+#   Tier 1 — high confidence, candidate for auto-accept
+#   Tier 2 — medium confidence, propagate but flag for a quick human check
+#   Tier 3 — low/no confidence, needs a human to look at it
+# As of 2026-08-12 direction: everything is auto-applied regardless of tier
+# for this POC — the tier is recorded, not yet enforced as a gate. That gate
+# is the direction of travel, not implemented here.
+TIER_1_THRESHOLD = 0.75
+TIER_2_THRESHOLD = 0.50
+
+
+def confidence_to_tier(confidence: float) -> int:
+    """Band a confidence score into a Tier 1/2/3 rating."""
+    if confidence >= TIER_1_THRESHOLD:
+        return 1
+    if confidence >= TIER_2_THRESHOLD:
+        return 2
+    return 3
+
+
 # All conditioning output is written under this single namespaced key inside
 # wall.properties, rather than as several flat sibling keys — keeps the
 # viewer/report/PowerBI surface predictable (one place to look) and avoids
 # ever colliding with a real Revit parameter name.
-CONDITIONING_KEY = "Conditioning Results"
+CONDITIONING_KEY = "Turner Assembly Code"
 
 # Matches Turner Level 4 sub-section codes: one capital letter, 4 digits, dot, 1-2 digits
 # e.g. B2010.10, C1010.40, A2010.10
@@ -130,9 +155,10 @@ LEVEL4_PATTERN = re.compile(r"^[A-Z]\d{4}\.\d{1,2}$")
 COLLAPSED_LEVEL4_PATTERN = re.compile(r"^([A-Z]\d{4})(\d{2})$")
 
 # Matches legacy ASTM Uniformat II codes: one capital letter, 4 digits, then a
-# 3-digit sub-code (e.g. B2010160, C1010145). These already carry real
-# classification signal via their type_name/family/function — they must NOT be
-# treated as blank slates and overwritten by the heuristic fallback.
+# 3-digit sub-code (e.g. B2010160, C1010145). These get re-predicted to a
+# Turner Level 4 code like any other non-Level4 wall (see predict.predict_codes)
+# — the original code is preserved alongside the new one for traceability,
+# never silently discarded.
 ASTM_CODE_PATTERN = re.compile(r"^[A-Z]\d{4}\d{3}$")
 
 

@@ -1,8 +1,11 @@
 """The prediction engine: fingerprint similarity + heuristic fallback.
 
-Produces Prediction objects for walls with no Assembly Code at all. Walls
-that already have a code — in any format — are never prediction targets;
-see predict_codes() docstring for why.
+Produces Prediction objects for every wall that doesn't already carry a
+Turner Level 4 code — that covers both walls with no code at all AND walls
+with an existing non-Level4 code (e.g. legacy ASTM Uniformat II). Both get a
+real, method-based confidence score and Tier 1/2/3 rating; nothing is
+silently defaulted to 0 confidence and nothing gets skipped. See
+predict_codes() docstring for the full reasoning.
 """
 
 from __future__ import annotations
