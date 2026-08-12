@@ -120,6 +120,34 @@ def build_report(
             f"| {orig_code} | `{p.predicted_code}` | {conf_str} | Tier {p.tier} | {p.method} | {matched} |"
         )
 
+    tier3_preds = [p for p in predictions if p.tier == 3]
+    lines += [
+        "",
+        "---",
+        "",
+        "## Needs a Closer Look (Tier 3)",
+        "",
+    ]
+    if tier3_preds:
+        lines += [
+            f"{len(tier3_preds)} prediction(s) landed at Tier 3 — low/no confidence. "
+            "These are still auto-applied for this POC (see the direction-of-travel "
+            "note above), but they're the ones actually worth a human looking at, "
+            "not just a quick check.",
+            "",
+            "| Type Name | Category | Original Code | Predicted Code | Confidence | Method |",
+            "|-----------|----------|----------------|-----------------|------------|--------|",
+        ]
+        for p in sorted(tier3_preds, key=lambda x: x.confidence):
+            w         = p.wall
+            orig_code = f"`{w.assembly_code}`" if w.is_coded else "—"
+            lines.append(
+                f"| {w.type_name or '—'} | {w.category or '—'} | {orig_code} "
+                f"| `{p.predicted_code}` | {p.confidence:.0%} | {p.method} |"
+            )
+    else:
+        lines.append("None — every prediction cleared at least Tier 2.")
+
     lines += [
         "",
         "---",

@@ -144,6 +144,26 @@ def attach_viewer_annotations(
             message=f"Predicted: {label} ({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
+    # Tier 3 predictions get a second, warning-level annotation on top of
+    # whichever method bucket they landed in above — regardless of method,
+    # low/no confidence is worth surfacing as its own thing in the run
+    # report, not just a "Tier 3" substring inside a longer info label that's
+    # easy to scroll past. attach_warning_to_objects (vs. attach_info) is a
+    # real severity distinction here, not cosmetic: Tier 3 means "a human
+    # actually needs to look at this one" per the tier definitions in
+    # codes.py.
+    tier3_by_code: dict[str, list] = defaultdict(list)
+    for pred in predictions:
+        if pred.tier == 3:
+            tier3_by_code[pred.predicted_code].append(pred.wall.obj)
+    for code, objs in sorted(tier3_by_code.items()):
+        automate_context.attach_warning_to_objects(
+            category="Uniformat — Needs Review (Tier 3)",
+            affected_objects=objs,
+            message=f"Predicted {code} at Tier 3 (low/no confidence) — worth a human look "
+                    f"({len(objs)} element{'s' if len(objs) != 1 else ''})",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Augmented model version
