@@ -13,7 +13,7 @@ from typing import Optional
 
 from speckle_automate import AutomationContext
 
-from conditioning.codes import CONDITIONING_KEY
+from conditioning.codes import CONDITIONING_KEY, tier_label
 from conditioning.predict import Prediction
 from conditioning.walls import WallRecord
 
@@ -25,7 +25,7 @@ from conditioning.walls import WallRecord
 def imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) -> None:
     """Mutate wall objects in-place to embed conditioning output.
 
-    All output is written under a single namespaced `Turner Assembly Code`
+    All output is written under a single namespaced `Turner UF Code`
     dict (CONDITIONING_KEY) rather than several flat sibling keys — one
     predictable place to look in the viewer/report/PowerBI, and no risk of
     colliding with a real Revit parameter name.
@@ -48,7 +48,7 @@ def imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) 
         if not isinstance(props, dict):
             # Shouldn't happen for a real Revit wall, but guard gracefully
             props = {}
-            obj["properties"] = props
+            setattr(obj, "properties", props)
 
         if wall.is_level4_coded:
             # Already correct — passed through unchanged
@@ -67,7 +67,7 @@ def imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) 
                 "Status": "predicted",
                 "Level 4 Code": pred.predicted_code,
                 "Confidence": pred.confidence,
-                "Tier": pred.tier,
+                "Tier": tier_label(pred.tier),
                 "Method": pred.method,
                 "Original Code": wall.assembly_code if wall.is_coded else None,
             }
