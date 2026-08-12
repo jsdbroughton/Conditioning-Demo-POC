@@ -1,7 +1,7 @@
 """Offline unit tests for imprint_predictions — the function that writes
 conditioning output onto wall objects.
 
-Written under a single namespaced `Turner Assembly Code` dict
+Written under a single namespaced `Turner UF Code` dict
 (CONDITIONING_KEY) rather than several flat sibling keys, so there's one
 predictable place to look in the viewer/report/PowerBI, and no risk of
 colliding with a real Revit parameter name.
@@ -63,7 +63,7 @@ class TestImprintPredictedWall:
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Method"] == "heuristic_function"
         assert result["Confidence"] == 0.75
-        assert result["Tier"] == 1
+        assert result["Tier"] == "Tier 1"
         assert result["Original Code"] is None
 
 
@@ -82,7 +82,7 @@ class TestImprintRemapsLegacyCode:
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Original Code"] == "B2010160"
-        assert result["Tier"] == 1
+        assert result["Tier"] == "Tier 1"
         # the wall's own assembly_code field is untouched by imprinting —
         # only the written properties dict carries the new code
         assert wall.assembly_code == "B2010160"
@@ -98,7 +98,7 @@ class TestImprintCurtainWallElement:
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.40"
         assert result["Method"] == "heuristic_category"
-        assert result["Tier"] == 1
+        assert result["Tier"] == "Tier 1"
 
 
 class TestConditioningKeyIsSingularNamespace:
