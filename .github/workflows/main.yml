@@ -12,16 +12,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install dependencies
         run: |
-          pip install .[dev]
+          uv sync --frozen
       - name: Extract functionInputSchema
         id: extract_schema
         run: |
-          python main.py generate_schema ${HOME}/${{ env.FUNCTION_SCHEMA_FILE_NAME }}
+          uv run python main.py generate_schema ${HOME}/${{ env.FUNCTION_SCHEMA_FILE_NAME }}
       - name: Speckle Automate Function - Build and Publish
         uses: specklesystems/speckle-automate-github-composite-action@2026.6.0
         with:
