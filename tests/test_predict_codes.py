@@ -17,7 +17,7 @@ See docs/NOTES.md session history for the full write-up.
 
 from __future__ import annotations
 
-from conditioning.codes import METHOD_CONFIDENCE, confidence_to_tier
+from conditioning.codes import METHOD_CONFIDENCE, confidence_to_tier, tier_label
 from conditioning.predict import predict_codes
 from conditioning.walls import WallRecord
 
@@ -246,3 +246,14 @@ class TestConfidenceToTier:
     def test_tier_3_band(self):
         assert confidence_to_tier(0.49) == 3
         assert confidence_to_tier(0.0) == 3
+
+
+class TestTierLabel:
+    """tier_label() is the text form written onto Speckle objects — internal
+    logic (counting, sorting, a future auto-accept gate) still works off the
+    plain int from confidence_to_tier()."""
+
+    def test_known_tiers_render_as_text(self):
+        assert tier_label(1) == "Tier 1"
+        assert tier_label(2) == "Tier 2"
+        assert tier_label(3) == "Tier 3"
