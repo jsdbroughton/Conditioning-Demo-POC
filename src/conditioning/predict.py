@@ -14,18 +14,25 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from conditioning.codes import DEFAULT_CODE, FUNCTION_TO_CODE, HEURISTIC_MAP, METHOD_CONFIDENCE
+from conditioning.codes import (
+    DEFAULT_CODE,
+    FUNCTION_TO_CODE,
+    HEURISTIC_MAP,
+    METHOD_CONFIDENCE,
+    confidence_to_tier,
+)
 from conditioning.walls import WallRecord
 
 
 @dataclass
 class Prediction:
-    """A predicted Uniformat code for one uncoded wall."""
+    """A predicted Turner Level 4 code for one non-Level4 wall."""
 
     wall: WallRecord
     predicted_code: str
     description: str
     confidence: float
+    tier: int                      # 1 (high) / 2 (medium) / 3 (low) — see codes.confidence_to_tier
     method: str                    # "similarity" | "heuristic_function" | "heuristic_name" | "default"
     matched_from: Optional[str]    # type_name of the best-scoring reference wall
 
@@ -72,7 +79,20 @@ def fingerprint_similarity(a: WallRecord, b: WallRecord) -> float:
 
 
 def _heuristic_predict(wall: WallRecord) -> tuple[str, str, str]:
-    """Return (code, description, method) using Revit Function then keyword search."""
+    """Return (code, description, method).
+
+    Checked in order of signal strength: Revit's own category first (it's an
+    authoritative assignment, not a guess — this is what makes curtain wall
+    elements classify correctly even when the type name gives no hint), then
+    the Function parameter, then keyword search, then a blind default.
+    """
+    if "curtain" in wall.category.lower():
+        return (
+            "B2010.40",
+            "Fabricated Exterior Wall Assemblies (Curtain Wall)",
+            "heuristic_category",
+        )
+
     func_lower = wall.function.lower().strip()
     for keyword, (code, desc) in FUNCTION_TO_CODE.items():
         if keyword in func_lower:
@@ -87,27 +107,36 @@ def _heuristic_predict(wall: WallRecord) -> tuple[str, str, str]:
 
 
 def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]:
-    """Predict Turner Level 4 codes for walls that have NO code at all.
+    """Predict Turner Level 4 codes for every wall that isn't already Level4-coded.
 
-    Reference pool: any wall that already carries a code, in ANY format —
-    Turner Level 4 dot-notation (gold standard) or legacy ASTM Uniformat II
-    (e.g. B2010160). Both are real classification signal on the same
-    type_name/family/function fingerprint; excluding ASTM walls from the
-    reference pool (the previous behaviour) starves similarity matching of
-    data on models like Henry Ford Wall Takeoff where NO wall has a
-    dot-notation code yet, which is why every prediction there fell through
-    to the heuristic with a hardcoded confidence of 0.
+    Prediction targets: any wall where `is_level4_coded` is False — that's
+    both truly blank walls AND walls with an existing non-Level4 code (e.g.
+    legacy ASTM Uniformat II like B2010160). Direction as of 2026-08-12: the
+    fuzzy match/heuristic runs and is applied for ALL of these, with a real
+    confidence score and Tier rating recorded — not silently skipped. An
+    earlier version of this function left ASTM-coded walls untouched and
+    flagged them "needs review" instead of predicting; that undersells what
+    the heuristic can already do (it works off the wall's own
+    type_name/family/function, which is just as informative whether or not
+    the wall happens to have an old-format code) and isn't the intended POC
+    outcome. The original code is preserved by the caller (see
+    speckle_io.imprint_predictions) for traceability — nothing is discarded,
+    it's recorded alongside the new prediction.
 
-    Prediction targets: ONLY walls with no code at all. Walls that already
-    have a code — even a non-Level4 one — are never touched here; overwriting
-    a specific ASTM sub-code (e.g. the '160' in B2010160) with a generic
-    heuristic guess destroys real information and is exactly the regression
-    caught live on the 2026-07-17 Turner call. Existing-but-wrong-format
-    codes are surfaced separately for manual crosswalk review — see
-    WallClassification.non_level4_coded in conditioning.walls.
+    Reference pool (for similarity matching): any wall that already carries
+    a code, in ANY format. A wall is never compared against itself. If the
+    best-scoring reference is itself not Level4-coded, its raw code is NOT
+    handed out as a "confident" match (that would just propagate one
+    non-Turner code onto another wall) — falls back to the heuristic instead,
+    keeping the match for traceability via `matched_from`.
+
+    Auto-apply, no gating: everything above gets an entry in the returned
+    list and is imprinted regardless of confidence/tier. Tier is recorded so
+    a future pass can gate on it (e.g. auto-accept Tier 1, human review
+    Tier 3) — that gate is the direction of travel, not implemented here.
     """
     reference  = [w for w in walls if w.is_coded]
-    needs_pred = [w for w in walls if not w.is_coded]
+    needs_pred = [w for w in walls if not w.is_level4_coded]
     predictions: list[Prediction] = []
 
     for wall in needs_pred:
@@ -115,33 +144,39 @@ def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]
         best_ref: Optional[WallRecord] = None
 
         for ref in reference:
+            if ref.object_id == wall.object_id:
+                continue  # never match a wall against itself
             score = fingerprint_similarity(wall, ref)
             if score > best_score:
                 best_score = score
                 best_ref   = ref
 
         if best_ref and best_score >= threshold:
-            # Similarity match: if the reference wall is itself ASTM-coded
-            # (not yet in Turner Level 4 format), we can't hand its raw code
-            # to another wall as a "confident" Level 4 prediction — fall back
-            # to the heuristic instead, but keep the match for traceability.
+            # Similarity match: if the reference wall is itself not
+            # Level4-coded, we can't hand its raw code to another wall as a
+            # "confident" Level 4 prediction — fall back to the heuristic
+            # instead, but keep the match for traceability.
             if best_ref.is_level4_coded:
+                confidence = round(best_score, 3)
                 predictions.append(Prediction(
                     wall=wall,
                     predicted_code=best_ref.assembly_code,  # type: ignore[arg-type]
                     description=f"Matched to '{best_ref.type_name}'",
-                    confidence=round(best_score, 3),
+                    confidence=confidence,
+                    tier=confidence_to_tier(confidence),
                     method="similarity",
                     matched_from=best_ref.type_name,
                 ))
                 continue
 
         code, desc, method = _heuristic_predict(wall)
+        confidence = METHOD_CONFIDENCE.get(method, 0.0)
         predictions.append(Prediction(
             wall=wall,
             predicted_code=code,
             description=desc,
-            confidence=METHOD_CONFIDENCE.get(method, 0.0),
+            confidence=confidence,
+            tier=confidence_to_tier(confidence),
             method=method,
             matched_from=best_ref.type_name if best_ref else None,
         ))
