@@ -15,6 +15,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from conditioning.codes import (
+    CONFLICT_PENALTY,
+    CORROBORATION_BONUS,
+    CORROBORATION_CAP,
     DEFAULT_CODE,
     FUNCTION_TO_CODE,
     HEURISTIC_MAP,
@@ -33,7 +36,7 @@ class Prediction:
     description: str
     confidence: float
     tier: int                      # 1 (high) / 2 (medium) / 3 (low) — see codes.confidence_to_tier
-    method: str                    # "similarity" | "heuristic_function" | "heuristic_name" | "default"
+    method: str                    # "similarity" | "heuristic_category" | "heuristic_function" | "heuristic_name" | "default"
     matched_from: Optional[str]    # type_name of the best-scoring reference wall
 
 
@@ -78,32 +81,74 @@ def fingerprint_similarity(a: WallRecord, b: WallRecord) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _heuristic_predict(wall: WallRecord) -> tuple[str, str, str]:
-    """Return (code, description, method).
+def _heuristic_signals(wall: WallRecord) -> list[tuple[str, str, str, float]]:
+    """Collect every independent heuristic signal that fires for this wall.
 
-    Checked in order of signal strength: Revit's own category first (it's an
-    authoritative assignment, not a guess — this is what makes curtain wall
-    elements classify correctly even when the type name gives no hint), then
-    the Function parameter, then keyword search, then a blind default.
+    Ordered strongest-first: Revit's own category assignment (authoritative,
+    not a guess), then the Function parameter, then a type-name/family
+    keyword match. Each entry is (code, description, method, base_confidence)
+    — the first entry decides the prediction itself (see _heuristic_predict);
+    any others are used only to corroborate or conflict with it.
     """
+    signals: list[tuple[str, str, str, float]] = []
+
     if "curtain" in wall.category.lower():
-        return (
+        signals.append((
             "B2010.40",
             "Fabricated Exterior Wall Assemblies (Curtain Wall)",
             "heuristic_category",
-        )
+            METHOD_CONFIDENCE["heuristic_category"],
+        ))
 
     func_lower = wall.function.lower().strip()
     for keyword, (code, desc) in FUNCTION_TO_CODE.items():
         if keyword in func_lower:
-            return code, desc, "heuristic_function"
+            signals.append((code, desc, "heuristic_function", METHOD_CONFIDENCE["heuristic_function"]))
+            break
 
-    combined = f"{wall.type_name} {wall.family} {wall.function}".lower()
+    # type_name + family only — deliberately excludes wall.function. Every
+    # FUNCTION_TO_CODE keyword (exterior/interior/retaining/foundation/
+    # curtain) also appears verbatim in HEURISTIC_MAP mapped to the same
+    # code, so if function's own text were included here, a Function-param
+    # match would almost always "corroborate" itself via this second loop —
+    # not a genuinely independent signal, just the same data point restated.
+    # Keeping this to type_name/family means a keyword hit here reflects
+    # what whoever modeled the wall actually named it, an independent check
+    # against what Revit's Function parameter says.
+    combined = f"{wall.type_name} {wall.family}".lower()
     for keyword, code, desc in HEURISTIC_MAP:
         if keyword in combined:
-            return code, desc, "heuristic_name"
+            signals.append((code, desc, "heuristic_name", METHOD_CONFIDENCE["heuristic_name"]))
+            break
 
-    return DEFAULT_CODE[0], DEFAULT_CODE[1], "default"
+    return signals
+
+
+def _heuristic_predict(wall: WallRecord) -> tuple[str, str, str, float]:
+    """Return (code, description, method, confidence) for one wall.
+
+    The strongest signal (category > Function param > keyword match — see
+    _heuristic_signals) decides the predicted code and method. Confidence
+    starts at that signal's base trust level (codes.METHOD_CONFIDENCE) and is
+    then adjusted per-object: nudged up toward CORROBORATION_CAP if a weaker,
+    independent signal on the same wall agrees with it, nudged down by
+    CONFLICT_PENALTY if one contradicts it instead. Two walls classified by
+    the same method can end up with different confidence — that's the point;
+    it's no longer purely a lookup by method.
+    """
+    signals = _heuristic_signals(wall)
+    if not signals:
+        return DEFAULT_CODE[0], DEFAULT_CODE[1], "default", METHOD_CONFIDENCE["default"]
+
+    code, desc, method, confidence = signals[0]
+    others = signals[1:]
+
+    if any(s[0] == code for s in others):
+        confidence = min(CORROBORATION_CAP, confidence + CORROBORATION_BONUS)
+    elif any(s[0] != code for s in others):
+        confidence = max(0.0, confidence - CONFLICT_PENALTY)
+
+    return code, desc, method, round(confidence, 3)
 
 
 def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]:
