@@ -127,15 +127,17 @@ def automate_function(
 
     # 6. Success summary
     sim_count  = sum(1 for p in predictions if p.method == "similarity")
-    heur_count = len(predictions) - sim_count
+    cat_count  = sum(1 for p in predictions if p.method == "heuristic_category")
+    heur_count = len(predictions) - sim_count - cat_count
+    tier1 = sum(1 for p in predictions if p.tier == 1)
     summary = (
-        f"Processed {len(walls)} walls — "
+        f"Processed {len(walls)} elements — "
         f"{len(classification.level4)} already Turner Level 4, "
-        f"{len(classification.non_level4_coded)} non-Level4 codes flagged for "
-        f"manual crosswalk review (NOT overwritten), "
-        f"{len(classification.uncoded)} uncoded — "
-        f"{len(predictions)} predicted "
-        f"({sim_count} similarity, {heur_count} heuristic)."
+        f"{len(classification.non_level4_coded)} legacy codes remapped, "
+        f"{len(classification.uncoded)} newly predicted — "
+        f"{len(predictions)} total predictions applied "
+        f"({sim_count} similarity, {cat_count} curtain wall category match, "
+        f"{heur_count} other heuristic; {tier1} Tier 1)."
     )
     if new_version_id:
         summary += f" Conditioned model version: {new_version_id}"
