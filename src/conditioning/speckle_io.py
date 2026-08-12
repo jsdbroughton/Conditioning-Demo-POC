@@ -25,10 +25,16 @@ from conditioning.walls import WallRecord
 def imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) -> None:
     """Mutate wall objects in-place to embed conditioning output.
 
-    All output is written under a single namespaced `Conditioning Results`
+    All output is written under a single namespaced `Turner Assembly Code`
     dict (CONDITIONING_KEY) rather than several flat sibling keys — one
     predictable place to look in the viewer/report/PowerBI, and no risk of
     colliding with a real Revit parameter name.
+
+    Direction as of 2026-08-12: every non-Level4 wall (blank or an existing
+    non-Turner-format code) gets predict.predict_codes()'s fuzzy match/
+    heuristic applied and written here — auto-applied regardless of
+    confidence/tier for this POC. Tier is recorded so a future pass can gate
+    on it; nothing is held back or skipped in the meantime.
     """
     pred_map = {p.wall.object_id: p for p in predictions}
 
@@ -51,27 +57,19 @@ def imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) 
                 "Level 4 Code": wall.assembly_code,
             }
         elif pred:
-            # Predicted — only reachable for walls with NO existing code at all
-            # (see predict.predict_codes). Never overwrites a wall that
-            # already had a code in some format.
+            # Predicted — reachable for every non-Level4 wall (blank or an
+            # existing non-Turner-format code; see predict.predict_codes).
+            # "Original Code" is None for walls that had no code at all, and
+            # the prior code for walls being remapped from a legacy format —
+            # always present so the shape is consistent for downstream
+            # consumers, never silently dropped.
             props[CONDITIONING_KEY] = {
                 "Status": "predicted",
                 "Level 4 Code": pred.predicted_code,
                 "Confidence": pred.confidence,
+                "Tier": pred.tier,
                 "Method": pred.method,
-            }
-        elif wall.is_coded:
-            # Has a code, but not Turner Level 4 format (e.g. legacy ASTM
-            # B2010160). Left untouched — flagged for manual crosswalk review
-            # rather than silently overwritten.
-            props[CONDITIONING_KEY] = {
-                "Status": "needs review",
-                "Original Code": wall.assembly_code,
-                "Reason": (
-                    f"Existing code '{wall.assembly_code}' is not Turner Level 4 "
-                    "dot-notation format — needs manual crosswalk mapping, not "
-                    "auto-prediction."
-                ),
+                "Original Code": wall.assembly_code if wall.is_coded else None,
             }
 
 
@@ -100,34 +98,42 @@ def attach_viewer_annotations(
             message=f"Level 4 code: {code} ({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
-    # Non-Level4 coded walls — has a code but not Turner Level 4 format
+    # Non-Level4 coded walls — has a legacy-format code (e.g. ASTM B2010160).
+    # These are auto-remapped, not just flagged — see the prediction groups
+    # below for the new code/confidence/tier each one gets.
     non_l4_by_code: dict[str, list] = defaultdict(list)
     for wall in non_level4_coded:
         non_l4_by_code[wall.assembly_code or ""].append(wall.obj)
     for code, objs in sorted(non_l4_by_code.items()):
         automate_context.attach_info_to_objects(
-            category="Uniformat — Non-Level4 Code (needs review)",
+            category="Uniformat — Legacy Code (remapped)",
             affected_objects=objs,
-            message=f"Code {code!r} is not Turner Level 4 format — review required "
+            message=f"Original code {code!r} is not Turner Level 4 format — "
+                    f"remapped, see Predicted annotations "
                     f"({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
-    # Predictions: group by (category, predicted_code)
+    # Predictions: group by (category, predicted_code). Category-matched
+    # predictions (e.g. curtain wall elements matched by Revit's own
+    # category, not a guess) get their own bucket, called out separately
+    # from plain keyword/function heuristics.
     pred_groups: dict[tuple[str, str], list] = defaultdict(list)
     pred_group_labels: dict[tuple[str, str], str] = {}
     for pred in predictions:
         if pred.method == "similarity":
             cat = "Uniformat — Predicted (similarity)"
-            key = (cat, pred.predicted_code)
-            pred_group_labels.setdefault(key, pred.predicted_code)
+            label = f"{pred.predicted_code} — Tier {pred.tier}"
+        elif pred.method == "heuristic_category":
+            cat = "Uniformat — Predicted (curtain wall category match)"
+            label = f"{pred.predicted_code} — Tier {pred.tier}"
         elif pred.method.startswith("heuristic"):
             cat = "Uniformat — Predicted (heuristic)"
-            key = (cat, pred.predicted_code)
-            pred_group_labels.setdefault(key, f"{pred.predicted_code} — {pred.description}")
+            label = f"{pred.predicted_code} — {pred.description} — Tier {pred.tier}"
         else:
             cat = "Uniformat — Predicted (default fallback)"
-            key = (cat, pred.predicted_code)
-            pred_group_labels.setdefault(key, f"{pred.predicted_code} (low confidence — review manually)")
+            label = f"{pred.predicted_code} — Tier {pred.tier} (low confidence — review manually)"
+        key = (cat, pred.predicted_code)
+        pred_group_labels.setdefault(key, label)
         pred_groups[key].append(pred.wall.obj)
 
     for (cat, _code), objs in sorted(pred_groups.items()):
