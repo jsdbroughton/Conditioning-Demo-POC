@@ -63,7 +63,10 @@ class TestImprintPredictedWall:
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Method"] == "heuristic_function"
         assert result["Confidence"] == 0.75
-        assert result["Tier"] == "Tier 1"
+        # A lone, uncorroborated Function-param match no longer clears
+        # TIER_1_THRESHOLD (0.85) — this wall's blank type_name/family give
+        # nothing else to corroborate it, so it lands Tier 2.
+        assert result["Tier"] == "Tier 2"
         assert result["Original Code"] is None
 
 
@@ -82,7 +85,8 @@ class TestImprintRemapsLegacyCode:
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Original Code"] == "B2010160"
-        assert result["Tier"] == "Tier 1"
+        # Same lone-signal case as the uncoded test above — Tier 2, not 1.
+        assert result["Tier"] == "Tier 2"
         # the wall's own assembly_code field is untouched by imprinting —
         # only the written properties dict carries the new code
         assert wall.assembly_code == "B2010160"

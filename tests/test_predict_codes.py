@@ -17,7 +17,14 @@ See docs/NOTES.md session history for the full write-up.
 
 from __future__ import annotations
 
-from conditioning.codes import METHOD_CONFIDENCE, confidence_to_tier, tier_label
+from conditioning.codes import (
+    CONFLICT_PENALTY,
+    CORROBORATION_BONUS,
+    CORROBORATION_CAP,
+    METHOD_CONFIDENCE,
+    confidence_to_tier,
+    tier_label,
+)
 from conditioning.predict import predict_codes
 from conditioning.walls import WallRecord
 
@@ -125,7 +132,10 @@ class TestPredictCodesUsesAstmWallsAsReferences:
         assert uncoded_pred.method != "similarity"
         assert uncoded_pred.method == "heuristic_function"
         assert uncoded_pred.predicted_code == "B2010.10"
-        assert uncoded_pred.confidence == METHOD_CONFIDENCE["heuristic_function"]
+        # "GFRC Panel" also matches the "gfrc" keyword — an independent
+        # signal agreeing with the Function param — so this lands above the
+        # bare heuristic_function base confidence, not exactly on it.
+        assert uncoded_pred.confidence == METHOD_CONFIDENCE["heuristic_function"] + CORROBORATION_BONUS
         # Traceability preserved even though the match wasn't used directly
         assert uncoded_pred.matched_from == "GFRC Panel"
 
@@ -173,12 +183,17 @@ class TestCurtainWallCategoryHeuristic:
     than any keyword or Function-param guess."""
 
     def test_curtain_system_classified_as_curtain_wall_assembly(self):
+        # "Storefront" also matches the "storefront" keyword — an
+        # independent signal agreeing with the category — so confidence
+        # lands above the bare heuristic_category base, capped below 1.0.
         wall = _wall("cs-1", category="Curtain Systems", type_name="Storefront")
         predictions = predict_codes([wall], threshold=0.65)
         pred = predictions[0]
         assert pred.predicted_code == "B2010.40"
         assert pred.method == "heuristic_category"
-        assert pred.confidence == METHOD_CONFIDENCE["heuristic_category"]
+        assert pred.confidence == min(
+            CORROBORATION_CAP, METHOD_CONFIDENCE["heuristic_category"] + CORROBORATION_BONUS
+        )
         assert pred.tier == 1
 
     def test_curtain_panel_classified_as_curtain_wall_assembly(self):
@@ -195,20 +210,80 @@ class TestCurtainWallCategoryHeuristic:
 
     def test_category_signal_beats_function_param(self):
         # Function says "Interior" (would normally heuristic_function ->
-        # C1010.10), but the category is a curtain category — category wins.
+        # C1010.10), but the category is a curtain category — category wins
+        # on which code gets predicted. But the two signals *disagree*
+        # (B2010.40 vs C1010.10) — a genuine data inconsistency on this
+        # wall — so confidence is penalised below the bare category base
+        # rather than staying at full trust.
         wall = _wall(
             "cp-2", category="Curtain Panels", type_name="Glazed Panel",
             function="Interior",
         )
         predictions = predict_codes([wall], threshold=0.65)
-        assert predictions[0].predicted_code == "B2010.40"
-        assert predictions[0].method == "heuristic_category"
+        pred = predictions[0]
+        assert pred.predicted_code == "B2010.40"
+        assert pred.method == "heuristic_category"
+        assert pred.confidence == METHOD_CONFIDENCE["heuristic_category"] - CONFLICT_PENALTY
 
     def test_plain_wall_category_does_not_trigger_curtain_heuristic(self):
         wall = _wall("w-1", category="Walls", type_name="Basic Wall", function="Exterior")
         predictions = predict_codes([wall], threshold=0.65)
         assert predictions[0].method == "heuristic_function"
         assert predictions[0].predicted_code == "B2010.10"
+
+
+class TestPerObjectConfidenceAdjustment:
+    """Confidence is a per-object value, not purely a lookup by method — two
+    walls classified via the same method can score differently depending on
+    whether other independent signals on that specific wall agree or
+    disagree with the strongest one."""
+
+    def test_single_signal_stays_at_method_base(self):
+        # Only Function fires here — type_name/family are neutral text with
+        # no HEURISTIC_MAP keyword in them, so there's no second, independent
+        # signal to corroborate or conflict with the Function match. A lone
+        # heuristic_function match (0.75) no longer clears TIER_1_THRESHOLD
+        # (0.85) on its own — that's the point of raising it: one
+        # uncorroborated parameter shouldn't earn "candidate for auto-accept".
+        wall = _wall("r-1", type_name="Foo Type", family="Bar Family", function="Retaining")
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.method == "heuristic_function"
+        assert pred.confidence == METHOD_CONFIDENCE["heuristic_function"]
+        assert pred.tier == 2
+
+    def test_agreeing_signals_boost_confidence_above_method_base(self):
+        # Function says Exterior AND the type name says "masonry" — two
+        # independent signals landing on the same code (B2010.10). The
+        # corroborated score (0.85) is exactly what lifts this wall into
+        # Tier 1, where the same match alone (0.75) would not have.
+        wall = _wall("agree-1", type_name="Masonry Veneer", function="Exterior")
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.predicted_code == "B2010.10"
+        assert pred.method == "heuristic_function"
+        assert pred.confidence == min(
+            CORROBORATION_CAP, METHOD_CONFIDENCE["heuristic_function"] + CORROBORATION_BONUS
+        )
+        assert pred.tier == 1
+
+    def test_conflicting_signals_reduce_confidence_below_method_base(self):
+        # Function says Exterior (-> B2010.10) but the type name says
+        # "partition" (-> C1010.10) — a real contradiction on this wall.
+        wall = _wall("conflict-1", type_name="Partition Type", function="Exterior")
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.predicted_code == "B2010.10"  # Function still wins the code itself
+        assert pred.method == "heuristic_function"
+        assert pred.confidence == METHOD_CONFIDENCE["heuristic_function"] - CONFLICT_PENALTY
+        # A contradiction pulls this specific wall down a tier vs. the clean case
+        assert pred.tier == 2
+
+    def test_corroboration_bonus_is_capped_below_certainty(self):
+        wall = _wall("cs-1", category="Curtain Systems", type_name="Storefront")
+        predictions = predict_codes([wall], threshold=0.65)
+        assert predictions[0].confidence <= CORROBORATION_CAP
+        assert predictions[0].confidence < 1.0
 
 
 class TestConfidenceReflectsMethodReliability:
@@ -237,10 +312,11 @@ class TestConfidenceReflectsMethodReliability:
 class TestConfidenceToTier:
     def test_tier_1_boundary(self):
         assert confidence_to_tier(1.0) == 1
-        assert confidence_to_tier(0.75) == 1
+        assert confidence_to_tier(0.85) == 1
 
     def test_tier_2_band(self):
-        assert confidence_to_tier(0.74) == 2
+        assert confidence_to_tier(0.84) == 2
+        assert confidence_to_tier(0.75) == 2  # a lone heuristic_function match no longer clears Tier 1
         assert confidence_to_tier(0.50) == 2
 
     def test_tier_3_band(self):

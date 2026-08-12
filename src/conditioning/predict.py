@@ -214,8 +214,7 @@ def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]
                 ))
                 continue
 
-        code, desc, method = _heuristic_predict(wall)
-        confidence = METHOD_CONFIDENCE.get(method, 0.0)
+        code, desc, method, confidence = _heuristic_predict(wall)
         predictions.append(Prediction(
             wall=wall,
             predicted_code=code,
