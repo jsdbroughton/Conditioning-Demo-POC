@@ -19,8 +19,14 @@ def build_report(
     level4          = classification.level4
     non_level4_coded = classification.non_level4_coded
     uncoded         = classification.uncoded
-    sim_preds       = [p for p in predictions if p.method == "similarity"]
-    heur_preds      = [p for p in predictions if p.method != "similarity"]
+    pred_by_wall_id = {p.wall.object_id: p for p in predictions}
+
+    sim_preds  = [p for p in predictions if p.method == "similarity"]
+    cat_preds  = [p for p in predictions if p.method == "heuristic_category"]
+    heur_preds = [p for p in predictions if p.method not in ("similarity", "heuristic_category")]
+    tier_counts: Counter = Counter(p.tier for p in predictions)
+
+    category_counts: Counter = Counter(w.category for w in walls)
 
     lines = [
         "# Conditioning Demo POC — Uniformat Prediction Report",
@@ -29,73 +35,89 @@ def build_report(
         "",
         "| Metric | Count |",
         "|--------|-------|",
-        f"| Total walls analysed | {len(walls)} |",
+        f"| Total elements analysed | {len(walls)} |",
+        "",
+        "**By category** (Walls + curtain wall family — mullions/panels/systems "
+        "are separate Revit categories from Walls, and are included here)",
+        "",
+        "| Category | Count |",
+        "|----------|-------|",
+    ]
+    for cat, count in sorted(category_counts.items()):
+        lines.append(f"| {cat or '—'} | {count} |")
+
+    lines += [
         "",
         "**Validation**",
         "",
         "| Metric | Count |",
         "|--------|-------|",
         f"| Has Turner Level 4 code (e.g. B2010.10) | {len(level4)} |",
-        f"| Has code but NOT Turner Level 4 format (needs review) | {len(non_level4_coded)} |",
-        f"| No code at all (uncoded) | {len(uncoded)} |",
+        f"| Has a legacy/non-Turner code (remapped below) | {len(non_level4_coded)} |",
+        f"| No code at all (predicted below) | {len(uncoded)} |",
         "",
-        "**Conditioning**",
+        "**Conditioning — everything below is auto-applied for this POC** "
+        "(no gating on confidence/tier yet — that's the direction of travel, "
+        "not implemented here; Tier is recorded so a future pass can gate on it)",
         "",
         "| Metric | Count |",
         "|--------|-------|",
         f"| Predicted via similarity match | {len(sim_preds)} |",
-        f"| Predicted via heuristic / default | {len(heur_preds)} |",
-        f"| Confidence threshold | {threshold} |",
+        f"| Predicted via curtain wall category match | {len(cat_preds)} |",
+        f"| Predicted via other heuristic / default | {len(heur_preds)} |",
+        f"| Tier 1 (high confidence) | {tier_counts.get(1, 0)} |",
+        f"| Tier 2 (medium confidence) | {tier_counts.get(2, 0)} |",
+        f"| Tier 3 (low/no confidence) | {tier_counts.get(3, 0)} |",
+        f"| Similarity confidence threshold | {threshold} |",
         "",
         "---",
         "",
-        "## Non-Level4 Codes (needs manual crosswalk review — NOT auto-changed)",
+        "## Legacy Codes Remapped",
         "",
-        "These walls already have an Assembly Code, but not in Turner's Level 4 "
-        "dot-notation format (e.g. legacy ASTM Uniformat II codes like "
-        "`B2010160`). Conditioning does **not** overwrite these — a prior "
-        "version of this function did, discarding the specific sub-code in "
-        "favour of a generic default, which is the exact regression caught "
-        "live on the 2026-07-17 Turner call. They're flagged via "
-        "`Turner Level 4 Code Review Needed` for a human to map, and their "
-        "type/family/function are used as similarity references for "
-        "genuinely uncoded walls below.",
+        "These elements already had an Assembly Code, but not in Turner's "
+        "Level 4 dot-notation format (e.g. legacy ASTM Uniformat II codes "
+        "like `B2010160`). They're run through the same fuzzy-match/heuristic "
+        "as uncoded elements and remapped — the original code is kept "
+        "alongside the new one for traceability, never silently discarded. "
+        "An earlier version of this function left these untouched and "
+        "flagged them for manual review instead; that undersold what the "
+        "heuristic can already do and wasn't the intended POC outcome.",
         "",
-        "| Type Name | Type Mark | Function | Width (mm) | Original Code |",
-        "|-----------|-----------|----------|------------|---------------|",
+        "| Type Name | Category | Original Code | New Code | Confidence | Tier |",
+        "|-----------|----------|----------------|----------|------------|------|",
     ]
 
-    nl4_counts: Counter = Counter()
-    nl4_meta: dict = {}
-    for w in non_level4_coded:
-        key = (w.type_name, w.assembly_code)
-        nl4_counts[key] += 1
-        nl4_meta[key] = (w.type_mark, w.function, round(w.width_mm))
-
-    if nl4_counts:
-        for (type_name, code), count in sorted(nl4_counts.items(), key=lambda x: x[0][1] or ""):
-            tm, fn, ww = nl4_meta.get((type_name, code), ("", "", 0))
-            lines.append(f"| {type_name} | {tm} | {fn} | {ww} | `{code}` ×{count} |")
+    if non_level4_coded:
+        for w in sorted(non_level4_coded, key=lambda w: w.assembly_code or ""):
+            p = pred_by_wall_id.get(w.object_id)
+            new_code = f"`{p.predicted_code}`" if p else "—"
+            conf_str = f"{p.confidence:.0%}" if p and p.confidence > 0 else "—"
+            tier_str = f"Tier {p.tier}" if p else "—"
+            lines.append(
+                f"| {w.type_name or '—'} | {w.category or '—'} | `{w.assembly_code}` "
+                f"| {new_code} | {conf_str} | {tier_str} |"
+            )
     else:
-        lines.append("| — | — | — | — | _none_ |")
+        lines.append("| — | — | — | — | — | — |")
 
     lines += [
         "",
         "---",
         "",
-        "## Predictions (walls with NO existing code)",
+        "## Predictions (all non-Level4 elements — blank + remapped)",
         "",
-        "| # | Type Name | Level | Width (mm) | Predicted Code | Confidence | Method | Matched From |",
-        "|---|-----------|-------|------------|----------------|------------|--------|--------------|",
+        "| # | Type Name | Category | Level | Width (mm) | Original Code | Predicted Code | Confidence | Tier | Method | Matched From |",
+        "|---|-----------|----------|-------|------------|----------------|-----------------|------------|------|--------|--------------|",
     ]
 
     for i, p in enumerate(sorted(predictions, key=lambda x: -x.confidence), 1):
-        w        = p.wall
-        conf_str = f"{p.confidence:.0%}" if p.confidence > 0 else "—"
-        matched  = p.matched_from or "—"
+        w         = p.wall
+        conf_str  = f"{p.confidence:.0%}" if p.confidence > 0 else "—"
+        matched   = p.matched_from or "—"
+        orig_code = f"`{w.assembly_code}`" if w.is_coded else "—"
         lines.append(
-            f"| {i} | {w.type_name or '—'} | {w.level or '—'} | {round(w.width_mm)} "
-            f"| `{p.predicted_code}` | {conf_str} | {p.method} | {matched} |"
+            f"| {i} | {w.type_name or '—'} | {w.category or '—'} | {w.level or '—'} | {round(w.width_mm)} "
+            f"| {orig_code} | `{p.predicted_code}` | {conf_str} | Tier {p.tier} | {p.method} | {matched} |"
         )
 
     lines += [
@@ -104,25 +126,25 @@ def build_report(
         "",
         "## Elements Not Conditioned (already Turner Level 4)",
         "",
-        "These walls already carry a Turner Level 4 code and were passed through unchanged.",
+        "These elements already carry a Turner Level 4 code and were passed through unchanged.",
         "",
-        "| Type Name | Type Mark | Function | Width (mm) | Code | Count |",
-        "|-----------|-----------|----------|------------|------|-------|",
+        "| Type Name | Category | Type Mark | Function | Width (mm) | Code | Count |",
+        "|-----------|----------|-----------|----------|------------|------|-------|",
     ]
 
     level4_counts: Counter = Counter()
     level4_meta: dict = {}
     for w in level4:
-        key = (w.type_name, w.assembly_code)
+        key = (w.type_name, w.category, w.assembly_code)
         level4_counts[key] += 1
         level4_meta[key] = (w.type_mark, w.function, round(w.width_mm))
 
     if level4_counts:
-        for (type_name, code), count in sorted(level4_counts.items(), key=lambda x: x[0][1] or ""):
-            tm, fn, ww = level4_meta.get((type_name, code), ("", "", 0))
-            lines.append(f"| {type_name} | {tm} | {fn} | {ww} | `{code}` | {count} |")
+        for (type_name, category, code), count in sorted(level4_counts.items(), key=lambda x: x[0][2] or ""):
+            tm, fn, ww = level4_meta.get((type_name, category, code), ("", "", 0))
+            lines.append(f"| {type_name} | {category or '—'} | {tm} | {fn} | {ww} | `{code}` | {count} |")
     else:
-        lines.append("| — | — | — | — | _none_ | 0 |")
+        lines.append("| — | — | — | — | — | _none_ | 0 |")
 
     lines += [
         "",
@@ -130,12 +152,12 @@ def build_report(
         "",
         "## Final Code Distribution (all elements)",
         "",
-        "Turner Level 4 codes (existing + predicted) vs. legacy codes still "
-        "awaiting manual crosswalk review — kept separate so a passing run "
-        "can't be misread as \"fully conditioned\".",
+        "Every element ends up with a Turner Level 4 code — existing ones "
+        "passed through, everything else predicted (blank or remapped from "
+        "legacy format) and auto-applied.",
         "",
-        "| Code | Description | Count | Status |",
-        "|------|-------------|-------|--------|",
+        "| Code | Description | Count |",
+        "|------|-------------|-------|",
     ]
 
     dist: dict[str, int] = defaultdict(int)
@@ -146,11 +168,7 @@ def build_report(
         dist[p.predicted_code] += 1
 
     for code in sorted(dist):
-        lines.append(f"| `{code}` | {TURNER_CODES.get(code, code)} | {dist[code]} | Level 4 |")
-
-    legacy_dist: Counter = Counter(w.assembly_code for w in non_level4_coded if w.assembly_code)
-    for code, count in sorted(legacy_dist.items()):
-        lines.append(f"| `{code}` | _legacy / non-Turner format_ | {count} | Needs review |")
+        lines.append(f"| `{code}` | {TURNER_CODES.get(code, code)} | {dist[code]} |")
 
     lines += ["", "---", "_Generated by Conditioning Demo POC · Speckle Automate_"]
     return "\n".join(lines)
