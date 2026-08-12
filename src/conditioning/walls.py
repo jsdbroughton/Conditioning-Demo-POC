@@ -1,8 +1,16 @@
 """Extracting WallRecord data from raw Speckle DataObjects, and classifying
 a wall list into coded/level4/uncoded buckets.
 
+"WallRecord" is the umbrella term for any Uniformat-conditionable envelope
+element — that's Revit's "Walls" category, plus curtain wall's separate
+"Curtain Systems", "Curtain Panels", and "Curtain Wall Mullions" categories.
+Turner's own B2010 ("Exterior Walls") Uniformat section already treats
+curtain walls as a wall sub-type (B2010.40), so grouping them under one
+WallRecord model matches the target taxonomy, even though Revit models them
+as distinct categories from plain "Walls" — see TARGET_CATEGORIES below.
+
 Data structure verified against Henry Ford Hospital shell model (project 0b23109140):
-  - wall.category         → top-level str == "Walls"
+  - wall.category         → top-level str, e.g. "Walls", "Curtain Systems"
   - wall.type             → top-level str, Revit type name
   - wall.family            → top-level str, Revit family name
   - wall.level            → top-level str, e.g. "LEVEL 01"
@@ -33,10 +41,11 @@ FEET_TO_MM = 304.8
 
 @dataclass
 class WallRecord:
-    """Extracted metadata for one Revit wall element."""
+    """Extracted metadata for one Revit wall or curtain-wall-family element."""
 
     obj: object             # the DataObject (Base subclass)
     object_id: str          # wall.id
+    category: str           # "Walls" | "Curtain Systems" | "Curtain Panels" | "Curtain Wall Mullions"
     type_name: str          # wall.type
     family: str             # wall.family
     function: str           # Construction > Function param value
@@ -188,6 +197,24 @@ def _get_category(obj) -> Optional[str]:
     return None
 
 
+# Categories collected for conditioning. Revit models curtain walls as three
+# categories distinct from "Walls" — the curtain wall host ("Curtain
+# Systems"), the individual glazing/spandrel infill ("Curtain Panels"), and
+# the framing members ("Curtain Wall Mullions"). All three were being
+# silently skipped when the filter only matched "Walls" exactly, meaning
+# every curtain wall element in a model was excluded from conditioning
+# entirely. Matched case-insensitively/by substring on "curtain" rather than
+# an exact string, since the exact category label wasn't verified against a
+# live curtain-wall-bearing model the way "Walls" was (see docs/NOTES.md).
+def _is_target_category(category: Optional[str]) -> bool:
+    """True if `category` is a wall or curtain-wall-family Revit category."""
+    if not category:
+        return False
+    if category == "Walls":
+        return True
+    return "curtain" in category.lower()
+
+
 def _recursive_collect(obj, walls: list, visited: set) -> None:
     """Recursively walk the object graph, collecting wall elements."""
     obj_id = getattr(obj, "id", None) or id(obj)
@@ -196,13 +223,14 @@ def _recursive_collect(obj, walls: list, visited: set) -> None:
     visited.add(obj_id)
 
     category = _get_category(obj)
-    if category == "Walls":
+    if _is_target_category(category):
         speckle_id = getattr(obj, "id", None) or ""
         if speckle_id:
             meta = get_wall_metadata(obj)
             walls.append(WallRecord(
                 obj=obj,
                 object_id=speckle_id,
+                category=category or "",
                 assembly_code=get_assembly_code(obj),
                 **meta,
             ))
@@ -226,7 +254,7 @@ def _recursive_collect(obj, walls: list, visited: set) -> None:
 
 
 def collect_walls(root) -> list[WallRecord]:
-    """Traverse the full object graph and return all Revit wall elements.
+    """Traverse the full object graph and return all wall + curtain-wall-family elements.
 
     Uses a manual recursive traversal as the primary strategy — GraphTraversal
     with empty rules can miss leaf objects nested inside Collections.
