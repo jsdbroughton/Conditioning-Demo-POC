@@ -125,6 +125,14 @@ def _pval(group: dict, name: str):
 def get_assembly_code(wall_obj) -> Optional[str]:
     """Extract Assembly Code from Identity Data > Type Parameters, or None.
 
+    Uppercased on the way in — LEVEL4_PATTERN/ASTM_CODE_PATTERN only match an
+    uppercase leading letter, so a code authored lowercase (e.g. a fat-
+    fingered 'b2010.10') would otherwise silently miss is_level4_coded and
+    get treated as an unrecognised legacy code needing re-prediction, even
+    though it's already correct. Turner/ASTM Uniformat codes have no
+    legitimate lowercase form, so this is a safe, unconditional
+    normalisation, not a guess.
+
     If the code looks like a Turner Level 4 code with the period accidentally
     stripped (e.g. 'B201010' → 'B2010.10'), normalise it on the way in so it
     is treated as already-coded Level 4 rather than needing upgrade.
@@ -134,7 +142,7 @@ def get_assembly_code(wall_obj) -> Optional[str]:
     val = _pval(identity, "Assembly Code")
     if not val:
         return None
-    raw = str(val).strip()
+    raw = str(val).strip().upper()
     if not raw:
         return None
     return try_normalise_to_level4(raw) or raw
