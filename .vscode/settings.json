@@ -6,5 +6,12 @@
     "typer"
   ],
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
-  "python.analysis.extraPaths": ["${workspaceFolder}/src"]
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ],
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true
 }
