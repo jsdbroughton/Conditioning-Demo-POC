@@ -1,2 +1,18 @@
 [tools]
 python = '3.14.7'
+
+[tasks.test]
+description = "Run the offline test suite (default addopts already excludes -m integration)"
+run = "uv run pytest tests/ -v"
+
+[tasks."test:integration"]
+description = "Run the live integration test against the real Speckle project configured in .env"
+run = "uv run pytest tests/ -v -m integration"
+
+[tasks."test:timed"]
+description = "Offline suite with inline per-test elapsed time (via pytest-timer)"
+run = "uv run --with pytest-timer pytest tests/ -v -s"
+
+[tasks."test:integration:timed"]
+description = "Live integration test with inline elapsed time (via pytest-timer) — no -s, so the SDK's own debug prints (fixtures.py, run-status reporting) stay captured and only show up if the test fails"
+run = "uv run --with pytest-timer pytest tests/ -v -m integration"
