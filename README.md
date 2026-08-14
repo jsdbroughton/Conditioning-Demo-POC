@@ -8,6 +8,13 @@ curtain-wall elements — specifically that firm's own Level 4 dot-notation
 sub-codes (e.g. `B2010.10`, `C1010.40`), using their Estimate Detail
 Structure as the reference code set.
 
+## Where this function lives
+
+- **Source**: [`jsdbroughton/Conditioning-Demo-POC`](https://github.com/jsdbroughton/Conditioning-Demo-POC) on GitHub. Publishing a new version is done by cutting a [GitHub release](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) — see `.github/workflows/main.yml`.
+- **Registered function ID**: `0497988d3f`, under the [`tcco` (Turner Construction) workspace](https://app.speckle.systems/workspaces/tcco/functions) on `app.speckle.systems`.
+- **POC deployment**: 5 automations (one per model) on the [Henry Ford Wall Takeoff](https://app.speckle.systems/projects/0b23109140) project, deployed and re-deployable via the sibling `Deploy Functions to Projects` tool's `manifests/turner.yaml` spec — see that project's README for the deployment log (`logs/0b23109140.jsonl`).
+- **Runtime resources**: declared at publish time via `speckle_function_recommended_cpu_m` / `speckle_function_recommended_memory_mi` in `main.yml` (currently 4000m CPU / 4000Mi memory) — see `.github/workflows/main.yml`.
+
 ## What it does
 
 On every triggered version, the function:
