@@ -23,6 +23,12 @@ dev = [
     "ruff==0.16.3",
 ]
 
+[tool.pytest.ini_options]
+markers = [
+    "integration: makes a real live call against the Speckle project configured in .env (excluded by default — run with `pytest tests/ -m integration`)",
+]
+addopts = "-m 'not integration'"
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
