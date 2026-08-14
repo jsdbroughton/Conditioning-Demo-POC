@@ -268,3 +268,4 @@ To ship a code change, create a new [GitHub release](https://docs.github.com/en/
 
 - [Learn](https://speckle.guide/dev/python.html) more about SpecklePy and interacting with Speckle from Python.
 - `docs/NOTES.md` — full development log for this project: every bug found, direction change, and the reasoning behind current thresholds/behaviour.
+- `docs/STATE.md` — current-state snapshot (purpose, main loop, flags, deployment, module map, testing) for anyone getting oriented without reading the full log.
