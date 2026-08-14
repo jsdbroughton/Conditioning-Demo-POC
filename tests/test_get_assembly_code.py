@@ -19,7 +19,9 @@ from conditioning.walls import get_assembly_code
 
 class _FakeWallObj:
     """Minimal stand-in matching the properties.Parameters.Type Parameters.
-    Identity Data.Assembly Code.value path get_assembly_code() reads."""
+
+    Identity Data.Assembly Code.value path get_assembly_code() reads.
+    """
 
     def __init__(self, assembly_code_value):
         self.properties = {
@@ -34,20 +36,26 @@ class _FakeWallObj:
 
 
 class TestGetAssemblyCodeUppercasesOnIngestion:
+    """Test get assembly code uppercases on ingestion."""
     def test_lowercase_level4_code_is_uppercased(self):
+        """Lowercase level4 code is uppercased."""
         assert get_assembly_code(_FakeWallObj("b2010.10")) == "B2010.10"
 
     def test_mixed_case_astm_code_is_uppercased(self):
+        """Mixed case ASTM code is uppercased."""
         assert get_assembly_code(_FakeWallObj("b2010160")) == "B2010160"
 
     def test_lowercase_collapsed_code_still_normalises_to_level4(self):
+        """Lowercase collapsed code still normalises to level4."""
         # 'b201010' -> uppercased to 'B201010' -> recognised as a Level 4
         # code with the period stripped -> normalised to 'B2010.10'.
         assert get_assembly_code(_FakeWallObj("b201010")) == "B2010.10"
 
     def test_whitespace_still_stripped(self):
+        """Whitespace still stripped."""
         assert get_assembly_code(_FakeWallObj("  B2010.10  ")) == "B2010.10"
 
     def test_blank_value_returns_none(self):
+        """Blank value returns none."""
         assert get_assembly_code(_FakeWallObj("")) is None
         assert get_assembly_code(_FakeWallObj(None)) is None
