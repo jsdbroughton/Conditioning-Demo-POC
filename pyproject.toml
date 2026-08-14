@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speckle-automate-function"
+version = "0.1.0"
+requires-python = ">=3.13"
+authors = [{ name = "Speckle Systems", email = "hello@speckle.systems" }]
+maintainers = [{ name = "Speckle Systems", email = "hello@speckle.systems" }]
+description = "A Speckle Automate function template using specklepy"
+readme = "README.md"
+license = "Apache-2.0"
+keywords = ["speckle", "automate", "bim", "aec"]
+
+dependencies = ["specklepy==2026.6.0"]
+
+[project.optional-dependencies]
+dev = [
+    "mypy==2.3.0",
+    "openpyxl==3.1.5",
+    "pytest==9.1.1",
+    "ruff==0.16.3",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.14"
+extraPaths = ["src"]
+
+[tool.ruff]
+exclude = [".venv", "**/*.yml"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "UP", # pyupgrade
+    "D",  # pydocstyle
+    "I",  # isort
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.setuptools]
+# src layout: the `conditioning` package (business logic) lives under src/ and
+# is installed properly via `uv sync` (or `pip install .`). main.py stays at
+# the repo root as a standalone script — it's the orchestrator the Speckle
+# Automate runtime invokes directly (`python main.py run ...`), not part of
+# the package itself.
+package-dir = { "" = "src" }
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

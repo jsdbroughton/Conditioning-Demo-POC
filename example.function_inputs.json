@@ -1,0 +1,19 @@
+{
+  "speckleToken": "YOUR SPECKLE TOKEN",
+  "functionInputs": {
+    "code_property_name": "ACME UF Code"
+  },
+  "automationRunData": {
+    "project_id": "YOUR_PROJECT_ID",
+    "speckle_server_url": "https://app.speckle.systems",
+    "automation_id": "automation id",
+    "automation_run_id": "automation run id",
+    "function_run_id": "function run id",
+    "triggers": [
+      {
+        "payload": { "modelId": "YOUR_MODEL_ID", "versionId": "YOUR_VERSION_ID" },
+        "triggerType": "versionCreation"
+      }
+    ]
+  }
+}
