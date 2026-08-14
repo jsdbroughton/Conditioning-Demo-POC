@@ -25,18 +25,36 @@ class _FakeSpeckleObject:
 
 
 class _FakeAutomationContext:
-    """Stands in for speckle_automate.AutomationContext — only the methods
-    attach_viewer_annotations() actually calls."""
+    """Stands in for speckle_automate.AutomationContext.
+
+    Implements only the methods attach_viewer_annotations() actually calls.
+    """
 
     def __init__(self) -> None:
         self.info_calls: list[dict] = []
         self.warning_calls: list[dict] = []
 
-    def attach_info_to_objects(self, category, affected_objects, message=None, **kwargs):
-        self.info_calls.append({"category": category, "objects": affected_objects, "message": message})
+    def attach_info_to_objects(
+        self,
+        category,
+        affected_objects,
+        message=None,
+        **kwargs,
+    ):
+        self.info_calls.append(
+            {"category": category, "objects": affected_objects, "message": message}
+        )
 
-    def attach_warning_to_objects(self, category, affected_objects, message=None, **kwargs):
-        self.warning_calls.append({"category": category, "objects": affected_objects, "message": message})
+    def attach_warning_to_objects(
+        self,
+        category,
+        affected_objects,
+        message=None,
+        **kwargs,
+    ):
+        self.warning_calls.append(
+            {"category": category, "objects": affected_objects, "message": message}
+        )
 
 
 def _wall(object_id: str, **overrides) -> WallRecord:
@@ -49,15 +67,23 @@ def _wall(object_id: str, **overrides) -> WallRecord:
 
 
 class TestTier3GetsAWarningLevelAnnotation:
+    """Test tier3 gets a warning level annotation."""
     def test_genuine_tier_3_prediction_fires_a_warning(self):
+        """Genuine tier 3 prediction fires a warning."""
         # No category, no Function match, no keyword match — falls all the
         # way through to the blind default (confidence 0.0, Tier 3).
         wall = _wall("t3-1", type_name="Unrecognisable Widget", family="", function="")
         predictions = predict_codes([wall], threshold=0.65)
-        assert predictions[0].tier == 3  # sanity-check the fixture actually lands Tier 3
+        # sanity-check the fixture actually lands Tier 3
+        assert predictions[0].tier == 3
 
         ctx = _FakeAutomationContext()
-        attach_viewer_annotations(ctx, level4=[], non_level4_coded=[], predictions=predictions)
+        attach_viewer_annotations(
+            ctx,
+            level4=[],
+            non_level4_coded=[],
+            predictions=predictions,
+        )
 
         assert len(ctx.warning_calls) == 1
         call = ctx.warning_calls[0]
@@ -66,11 +92,17 @@ class TestTier3GetsAWarningLevelAnnotation:
         assert "Tier 3" in call["message"]
 
     def test_no_tier_3_predictions_means_no_warning_call(self):
+        """No tier 3 predictions means no warning call."""
         wall = _wall("cs-1", category="Curtain Systems", type_name="Storefront")
         predictions = predict_codes([wall], threshold=0.65)
         assert predictions[0].tier == 1  # sanity-check
 
         ctx = _FakeAutomationContext()
-        attach_viewer_annotations(ctx, level4=[], non_level4_coded=[], predictions=predictions)
+        attach_viewer_annotations(
+            ctx,
+            level4=[],
+            non_level4_coded=[],
+            predictions=predictions,
+        )
 
         assert ctx.warning_calls == []
