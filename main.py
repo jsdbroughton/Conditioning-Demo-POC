@@ -25,6 +25,7 @@ from pydantic import Field
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode
 from speckle_automate import AutomateBase, AutomationContext, execute_automate_function
 
+from conditioning.codes import DEFAULT_CONDITIONING_KEY
 from conditioning.predict import predict_codes
 from conditioning.report import build_report
 from conditioning.speckle_io import (
@@ -35,17 +36,33 @@ from conditioning.walls import classify_walls, collect_walls
 
 
 class FunctionInputs(AutomateBase):
-    """Tunable parameters exposed in the Automate UI."""
+    """One user-tunable parameter: the conditioned-code property name.
 
-    confidence_threshold: float = Field(
-        default=0.65,
-        title="Confidence Threshold",
+    A `confidence_threshold` field ("Confidence Threshold" in the Automate
+    UI) was removed 2026-08-14 — it described itself as gating "a
+    model-based prediction," which overstated what it did (there's no
+    trained model, just a same-run similarity heuristic — see
+    codes.SIMILARITY_MATCH_THRESHOLD), and had no observable effect on any
+    real run to date: see that constant's comment for why. An input that
+    never visibly changes a run's output is worse than no input at all.
+
+    `code_property_name` replaces it as the one genuinely meaningful input:
+    it's the literal property key written onto every wall object, so it
+    changes something visible on every single run — the opposite problem to
+    the field it replaces. Defaulting it here (rather than hardcoding a
+    fixed key in codes.py) also means this function's source never has to
+    hardcode any one organisation's naming convention.
+    """
+
+    code_property_name: str = Field(
+        default=DEFAULT_CONDITIONING_KEY,
+        title="Conditioned Code Property Name",
         description=(
-            "Minimum similarity score (0–1) to accept a model-based prediction. "
-            "Below this threshold the heuristic fallback is used instead."
+            "Name of the property written onto every wall object's "
+            "properties, holding the conditioning result (Status, Level 4 "
+            "Code, Confidence, Tier, Method, Original Code). Set this to "
+            "match your organisation's own naming convention."
         ),
-        ge=0.0,
-        le=1.0,
     )
 
     @classmethod
@@ -95,13 +112,15 @@ def automate_function(
     print(
         f"[ConditioningPOC] "
         f"{len(classification.coded)} with any code "
-        f"({len(classification.level4)} Turner Level 4, "
+        f"({len(classification.level4)} Level 4, "
         f"{len(classification.non_level4_coded)} other format), "
         f"{len(classification.uncoded)} uncoded."
     )
 
-    # 2. Predict codes for uncoded walls
-    predictions = predict_codes(walls, function_inputs.confidence_threshold)
+    # 2. Predict codes for uncoded walls (threshold defaults to
+    # codes.SIMILARITY_MATCH_THRESHOLD — no longer a user input, see
+    # FunctionInputs docstring above)
+    predictions = predict_codes(walls)
 
     # 3. Per-object viewer annotations
     attach_viewer_annotations(
@@ -112,7 +131,7 @@ def automate_function(
     )
 
     # 4. Conditioning report
-    report_md   = build_report(walls, predictions, function_inputs.confidence_threshold)
+    report_md   = build_report(walls, predictions)
     report_path = Path("conditioning_report.md")
     report_path.write_text(report_md, encoding="utf-8")
     try:
@@ -122,7 +141,8 @@ def automate_function(
 
     # 5. Create augmented 'Conditioned/<source model name>' model version
     new_version_id = create_conditioned_version(
-        automate_context, root, walls, predictions
+        automate_context, root, walls, predictions,
+        code_property_name=function_inputs.code_property_name,
     )
 
     # 6. Success summary — leads with the outcome (what changed and how
@@ -152,8 +172,8 @@ def automate_function(
         confidence_note = "every prediction landed at Tier 1 — no manual triage needed"
 
     summary = (
-        f"Auto-conditioned all {len(walls)} wall elements to Turner Uniformat Level 4 "
-        f"in one pass — {len(classification.level4)} already correct, "
+        f"Auto-conditioned all {len(walls)} wall elements to Uniformat Level 4 "
+        f"in one pass — {len(classification.level4)} already correct (Tier 0), "
         f"{len(classification.non_level4_coded)} legacy codes remapped, "
         f"{len(classification.uncoded)} classified from a blank Assembly Code. "
         f"{confidence_note}."

@@ -1,13 +1,14 @@
 """Offline unit tests for imprint_predictions — the function that writes
 conditioning output onto wall objects.
 
-Written under a single namespaced `Turner UF Code` dict
-(CONDITIONING_KEY) rather than several flat sibling keys, so there's one
-predictable place to look in the viewer/report/PowerBI, and no risk of
-colliding with a real Revit parameter name.
+Written under a single namespaced dict — keyed by `code_property_name`, a
+user-facing Automate input as of 2026-08-14, defaulting to
+DEFAULT_CONDITIONING_KEY — rather than several flat sibling keys, so
+there's one predictable place to look in the viewer/report/PowerBI, and no
+risk of colliding with a real Revit parameter name.
 
 Direction as of 2026-08-12: every non-Level4 wall — blank or carrying a
-legacy/non-Turner code — gets Status "predicted" with a real
+legacy/non-ACME code — gets Status "predicted" with a real
 Confidence/Tier/Method, auto-applied. "Original Code" is always present in
 the dict (None if the wall had no code at all) so nothing is silently
 dropped. An earlier version wrote a distinct "needs review" status that left
@@ -16,7 +17,7 @@ legacy-coded walls untouched instead — that's no longer the behaviour.
 
 from __future__ import annotations
 
-from conditioning.codes import CONDITIONING_KEY
+from conditioning.codes import DEFAULT_CONDITIONING_KEY
 from conditioning.predict import predict_codes
 from conditioning.speckle_io import imprint_predictions
 from conditioning.walls import WallRecord
@@ -39,14 +40,20 @@ def _wall_with_obj(object_id: str, **overrides) -> WallRecord:
 
 
 class TestImprintExistingLevel4Wall:
-    """A wall already in Turner Level 4 format is passed through unchanged."""
+    """A wall already in ACME Level 4 format is passed through unchanged."""
 
     def test_level4_wall_gets_existing_status(self):
         wall = _wall_with_obj("l4-1", assembly_code="B2010.10")
         imprint_predictions([wall], predictions=[])
 
-        result = wall.obj.properties[CONDITIONING_KEY]
-        assert result == {"Status": "existing", "Level 4 Code": "B2010.10"}
+        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
+        # Tier 0 ("no work to be done") added 2026-08-14 — every wall now
+        # carries a Tier, not just predicted ones. See codes.TIER_LABELS.
+        assert result == {
+            "Status": "existing",
+            "Level 4 Code": "B2010.10",
+            "Tier": "Tier 0",
+        }
 
 
 class TestImprintPredictedWall:
@@ -58,7 +65,7 @@ class TestImprintPredictedWall:
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
-        result = wall.obj.properties[CONDITIONING_KEY]
+        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Method"] == "heuristic_function"
@@ -81,7 +88,7 @@ class TestImprintRemapsLegacyCode:
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
-        result = wall.obj.properties[CONDITIONING_KEY]
+        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Original Code"] == "B2010160"
@@ -98,7 +105,7 @@ class TestImprintCurtainWallElement:
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
-        result = wall.obj.properties[CONDITIONING_KEY]
+        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.40"
         assert result["Method"] == "heuristic_category"
@@ -109,4 +116,4 @@ class TestConditioningKeyIsSingularNamespace:
     def test_only_one_top_level_key_written(self):
         wall = _wall_with_obj("l4-1", assembly_code="B2010.10")
         imprint_predictions([wall], predictions=[])
-        assert list(wall.obj.properties.keys()) == [CONDITIONING_KEY]
+        assert list(wall.obj.properties.keys()) == [DEFAULT_CONDITIONING_KEY]

@@ -8,7 +8,7 @@ AutomationContext.
 
 Covers the fix where the run's "View Results" viewer only ever loaded the
 host model that triggered the run, with no way to also inspect the actual
-conditioned output (the Turner UF Code properties only exist on the new
+conditioned output (the conditioned-code properties only exist on the new
 version pushed to the artifact model). create_conditioned_version() now
 calls automate_context.set_context_view() to add the artifact model/version
 to that viewer, alongside the host model rather than replacing it —

@@ -1,18 +1,20 @@
-"""Turner Uniformat code reference data and code-format detection.
+"""Uniformat code reference data and code-format detection, for a
+construction firm's own estimate-detail structure (anonymized here as "ACME
+Studios" — see docs/NOTES.md for the 2026-08-14 anonymization pass).
 
-Source: Turner - Uniformat Estimate Detail Structure.xlsx
+Source: fixtures/ACME Studios - Uniformat Estimate Detail Structure.xlsx
 Sections: A2010 (Subgrade Walls), B2010 (Exterior Walls), B2020 (Exterior
 Windows — only enough of this section is included to resolve the curtain
 wall / window wall crosswalk below, not the full B2020 family), C1010
 (Interior Partitions)
 
-Turner's own code hierarchy, confirmed directly against the fixture
-spreadsheet (2026-08-12, while investigating why a legacy code wasn't
-matching a Level 4 sub-code):
+This organisation's own code hierarchy, confirmed directly against the
+fixture spreadsheet (2026-08-12, while investigating why a legacy code
+wasn't matching a Level 4 sub-code):
   Level 1  "A"              — major group (e.g. Substructure)
   Level 2  "A10"             — group element
   Level 3  "A1010" / "B2010" — individual element (a bare 4-digit section —
-                                this is what TURNER_CODES' top-level keys are)
+                                this is what ACME_CODES' top-level keys are)
   Level 4  "A1010.10"        — sub-element (dot + 1-2 digits) — the level a
                                 Revit Assembly Code is typically set to, and
                                 the prediction target for this POC
@@ -139,11 +141,27 @@ METHOD_CONFIDENCE = {
     "default": 0.0,
 }
 
-# Three-tier human-in-the-loop rating. This mirrors the tiering described
-# live on the 2026-07-17 Turner call:
-#   Tier 1 — high confidence, candidate for auto-accept
-#   Tier 2 — medium confidence, propagate but flag for a quick human check
-#   Tier 3 — low/no confidence, needs a human to look at it
+# Four-band human-in-the-loop rating (2026-08-14 direction — Tier 0 added
+# alongside the original three, described live on the 2026-07-17 client
+# call):
+#   Tier 0 — no work to be done. The wall already carries a genuine ACME
+#            Level 4 code; nothing was predicted, there's no confidence
+#            score to band. Not produced by confidence_to_tier() below —
+#            assigned directly wherever a wall's is_level4_coded is True
+#            (see speckle_io.imprint_predictions).
+#   Tier 1 — high confidence, candidate for auto-accept.
+#   Tier 2 — medium confidence, propagate but flag for a quick human check.
+#   Tier 3 — the bottom: not enough confidence to trust. Two distinct
+#            sub-cases land here, not just one — (a) genuinely no signal at
+#            all (`default` method, confidence 0.0 — no clue what this
+#            element is, nothing about it resembles anything else in the
+#            model), and (b) some signal DID fire but it's too weak to
+#            trust on its own (a lone, uncorroborated heuristic_name coin
+#            toss at 0.50) or it actively contradicts another signal on the
+#            same wall (e.g. the curtain/window-wall crosswalk conflicting
+#            with Function, also landing at 0.50). Both are "needs a human
+#            to look at it," but for different reasons — (a) is missing
+#            data, (b) is untrustworthy or contradictory data.
 # As of 2026-08-12 direction: everything is auto-applied regardless of tier
 # for this POC — the tier is recorded, not yet enforced as a gate. That gate
 # is the direction of travel, not implemented here.
@@ -199,20 +217,41 @@ CONFLICT_PENALTY = 0.15
 # Confidence for the curtain-wall-vs-window-wall crosswalk (see
 # predict._heuristic_signals and legacy_code_section() below). Revit's
 # generic "Curtain Systems"/"Curtain Panels"/"Curtain Wall Mullions"
-# categories don't distinguish true structural curtain wall (Turner
-# B2010.40) from storefront/window-wall systems (Turner B2020.30) — but a
+# categories don't distinguish true structural curtain wall (ACME's
+# B2010.40) from storefront/window-wall systems (ACME's B2020.30) — but a
 # wall's own pre-existing legacy code sometimes does, when its section
-# prefix disagrees with B2010. B2020.30 is a plausible domain read (Turner's
-# own fixture explicitly lists storefronts/window wall aluminum there), not
-# a confirmed ASTM-to-Turner crosswalk — there's no source data mapping the
-# ASTM 3-digit suffix to a specific Turner sub-code. Deliberately capped
+# prefix disagrees with B2010. B2020.30 is a plausible domain read (the
+# fixture explicitly lists storefronts/window wall aluminum there), not
+# a confirmed ASTM-to-ACME crosswalk — there's no source data mapping the
+# ASTM 3-digit suffix to a specific ACME sub-code. Deliberately capped
 # below TIER_1_THRESHOLD so this always lands Tier 2 ("suggest but verify"),
 # never auto-confident, per 2026-08-13 direction.
 CURTAIN_LEGACY_CROSSWALK_CONFIDENCE = 0.65
 
+# Minimum fingerprint-similarity score (predict.fingerprint_similarity) to
+# reuse another already-coded wall's exact code as a confident "similarity"
+# match, rather than falling through to the heuristic. Was exposed as a
+# user-facing Automate input ("Confidence Threshold") through 2026-08-14 —
+# removed per direction that a single knob describing itself as gating "a
+# model-based prediction" was misleading (there's no trained model, just
+# this same-run nearest-neighbour heuristic) and, worse, had no observable
+# effect on any real run: a similarity match only counts as confident when
+# the winning reference wall is ITSELF genuinely Level4-coded, and every
+# model conditioned so far (the target shell model + the 3 other client
+# project models) has zero such walls — so this line has never once been the deciding factor on
+# live data. Kept as a real, named constant rather than an inline literal:
+# the code path is real and would start mattering the moment a model shows
+# up with pre-existing Level4-coded walls to learn from.
+SIMILARITY_MATCH_THRESHOLD = 0.65
+
 
 def confidence_to_tier(confidence: float) -> int:
-    """Band a confidence score into a Tier 1/2/3 rating."""
+    """Band a confidence score into a Tier 1/2/3 rating.
+
+    Never returns 0 — Tier 0 ("no work to be done") isn't a confidence band,
+    it's assigned directly for already-Level4-coded walls, which never go
+    through prediction/confidence scoring at all. See TIER_LABELS.
+    """
     if confidence >= TIER_1_THRESHOLD:
         return 1
     if confidence >= TIER_2_THRESHOLD:
@@ -269,8 +308,8 @@ def try_normalise_to_level4(code: str) -> Optional[str]:
     m = COLLAPSED_LEVEL4_PATTERN.match(code.strip())
     if m:
         normalised = f"{m.group(1)}.{m.group(2)}"
-        # Only accept if the normalised code is a known Turner Level 4 code
-        if normalised in TURNER_CODES:
+        # Only accept if the normalised code is a known ACME Level 4 code
+        if normalised in ACME_CODES:
             return normalised
     return None
 

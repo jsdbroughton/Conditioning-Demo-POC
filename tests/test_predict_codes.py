@@ -111,7 +111,7 @@ class TestPredictCodesRemapsLegacyCodes:
 class TestPredictCodesUsesAstmWallsAsReferences:
     """ASTM-coded walls contribute their type/family/function fingerprint to
     similarity matching for other walls — they're just not allowed to hand
-    out their own raw (non-Turner-format) code as a "confident" match."""
+    out their own raw (non-ACME-format) code as a "confident" match."""
 
     def test_uncoded_wall_matches_astm_reference_falls_back_to_heuristic(self):
         astm_wall = _wall(
@@ -128,7 +128,7 @@ class TestPredictCodesUsesAstmWallsAsReferences:
         predictions = predict_codes([astm_wall, uncoded_wall], threshold=0.65)
         uncoded_pred = next(p for p in predictions if p.wall.object_id == "uncoded-1")
 
-        # Must NOT hand out the ASTM wall's raw non-Turner code as a
+        # Must NOT hand out the ASTM wall's raw non-ACME code as a
         # "similarity" match — falls back to the heuristic instead.
         assert uncoded_pred.method != "similarity"
         assert uncoded_pred.method == "heuristic_function"
@@ -175,6 +175,29 @@ class TestPredictCodesSimilarityAgainstLevel4Reference:
         assert pred.confidence == 1.0
         assert pred.tier == 1
         assert pred.matched_from == "Curtain Wall Type A"
+
+    def test_default_threshold_used_when_not_passed_explicitly(self):
+        # confidence_threshold was removed as a user-facing Automate input
+        # 2026-08-14 — production code (main.py) now calls predict_codes()
+        # with no threshold argument at all, relying entirely on the
+        # codes.SIMILARITY_MATCH_THRESHOLD default. This proves that default
+        # actually produces the same behaviour as explicitly passing 0.65,
+        # not just that the parameter still technically accepts a value.
+        reference = _wall(
+            "l4-2", type_name="Curtain Wall Type A", family="Curtain Wall",
+            function="Exterior", type_mark="CW-1", width_mm=150.0,
+            assembly_code="B2010.40",
+        )
+        uncoded_wall = _wall(
+            "uncoded-2", type_name="Curtain Wall Type A", family="Curtain Wall",
+            function="Exterior", type_mark="CW-1", width_mm=150.0,
+        )
+
+        predictions = predict_codes([reference, uncoded_wall])  # no threshold arg
+        pred = predictions[0]
+
+        assert pred.method == "similarity"
+        assert pred.predicted_code == "B2010.40"
 
 
 class TestCurtainWallCategoryHeuristic:

@@ -23,6 +23,7 @@ from conditioning.codes import (
     FUNCTION_TO_CODE,
     HEURISTIC_MAP,
     METHOD_CONFIDENCE,
+    SIMILARITY_MATCH_THRESHOLD,
     confidence_to_tier,
     legacy_code_section,
 )
@@ -192,7 +193,7 @@ def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]
     a code, in ANY format. A wall is never compared against itself. If the
     best-scoring reference is itself not Level4-coded, its raw code is NOT
     handed out as a "confident" match (that would just propagate one
-    non-Turner code onto another wall) — falls back to the heuristic instead,
+    non-ACME code onto another wall) — falls back to the heuristic instead,
     keeping the match for traceability via `matched_from`.
 
     Auto-apply, no gating: everything above gets an entry in the returned

@@ -227,6 +227,7 @@ def create_conditioned_version(
     root,
     walls: list[WallRecord],
     predictions: list[Prediction],
+    code_property_name: str = DEFAULT_CONDITIONING_KEY,
 ) -> Optional[str]:
     """
     Imprint predictions onto wall objects and push a new version into a
@@ -235,20 +236,24 @@ def create_conditioned_version(
 
     Namespaced per source model — not a single shared 'Conditioned' model —
     because a workspace can have several source models feeding this function
-    (e.g. Henry Ford Wall Takeoff's SHELL model alongside the UKHC Fitout
-    Tower/Podium/EXT_Core models Kevin Wanner uploaded 2026-07-21); writing
-    them all into one output model would mix unrelated walls together and
-    make each run's output ambiguous. Speckle model names use '/' as a
-    folder separator, so 'Conditioned/<name>' groups all conditioned output
-    under one parent in the model tree while keeping each source distinct.
+    (e.g. one client's shell model alongside several other project models
+    uploaded around the same time); writing them all into one output model
+    would mix unrelated walls together and make each run's output ambiguous.
+    Speckle model names use '/' as a folder separator, so 'Conditioned/<name>'
+    groups all conditioned output under one parent in the model tree while
+    keeping each source distinct.
 
     Also adds this new artifact version to the Automate run's context view
     (the "View Results" link), alongside the host model — see the comment
     at the set_context_view() call below.
 
+    `code_property_name` is threaded through to imprint_predictions() — see
+    main.FunctionInputs.code_property_name for why this is a per-run input
+    rather than a hardcoded constant.
+
     Returns the new version ID, or None on failure.
     """
-    imprint_predictions(walls, predictions)
+    imprint_predictions(walls, predictions, code_property_name=code_property_name)
 
     try:
         source_model_name = _get_source_model_name(automate_context)
@@ -279,7 +284,7 @@ def create_conditioned_version(
         # interactive per-object highlight markers only resolve against a
         # scene that still has the host model loaded. Adding the artifact
         # model as an extra resource just means reviewers can also inspect
-        # the actual Turner UF Code output in the same viewer, overlaid
+        # the actual conditioned-code output in the same viewer, overlaid
         # rather than swapped in.
         try:
             automate_context.set_context_view(

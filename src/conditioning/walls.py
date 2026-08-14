@@ -4,12 +4,12 @@ a wall list into coded/level4/uncoded buckets.
 "WallRecord" is the umbrella term for any Uniformat-conditionable envelope
 element — that's Revit's "Walls" category, plus curtain wall's separate
 "Curtain Systems", "Curtain Panels", and "Curtain Wall Mullions" categories.
-Turner's own B2010 ("Exterior Walls") Uniformat section already treats
+ACME's own B2010 ("Exterior Walls") Uniformat section already treats
 curtain walls as a wall sub-type (B2010.40), so grouping them under one
 WallRecord model matches the target taxonomy, even though Revit models them
 as distinct categories from plain "Walls" — see TARGET_CATEGORIES below.
 
-Data structure verified against Henry Ford Hospital shell model (project 0b23109140):
+Data structure verified against a live client shell model (2026-07-17):
   - wall.category         → top-level str, e.g. "Walls", "Curtain Systems"
   - wall.type             → top-level str, Revit type name
   - wall.family            → top-level str, Revit family name
@@ -61,7 +61,7 @@ class WallRecord:
 
     @property
     def is_level4_coded(self) -> bool:
-        """True if the Assembly Code is a Turner Level 4 sub-section code (e.g. B2010.10)."""
+        """True if the Assembly Code is an ACME Level 4 sub-section code (e.g. B2010.10)."""
         return bool(self.assembly_code and LEVEL4_PATTERN.match(self.assembly_code.strip()))
 
     @property
@@ -129,11 +129,11 @@ def get_assembly_code(wall_obj) -> Optional[str]:
     uppercase leading letter, so a code authored lowercase (e.g. a fat-
     fingered 'b2010.10') would otherwise silently miss is_level4_coded and
     get treated as an unrecognised legacy code needing re-prediction, even
-    though it's already correct. Turner/ASTM Uniformat codes have no
+    though it's already correct. ACME/ASTM Uniformat codes have no
     legitimate lowercase form, so this is a safe, unconditional
     normalisation, not a guess.
 
-    If the code looks like a Turner Level 4 code with the period accidentally
+    If the code looks like an ACME Level 4 code with the period accidentally
     stripped (e.g. 'B201010' → 'B2010.10'), normalise it on the way in so it
     is treated as already-coded Level 4 rather than needing upgrade.
     ASTM Uniformat II codes (3-digit suffix, e.g. 'B2010160') are NOT affected.

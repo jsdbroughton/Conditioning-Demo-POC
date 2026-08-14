@@ -65,11 +65,19 @@ On every triggered version, the function:
 1. [Create](https://automate.speckle.dev/) a new Speckle Automation.
 2. Select your Speckle Project and Speckle Model.
 3. Select this deployed Function.
-4. Optionally adjust **Confidence Threshold** (0–1, default `0.65`) — the
-   minimum similarity score accepted for a model-based prediction before it
-   falls back to the heuristic. It does not affect the heuristic's own
-   confidence/tier values.
+4. Optionally set **Conditioned Code Property Name** (default `Conditioned
+   UF Code`) — the literal property key written onto every wall object.
+   Set this to match your own organisation's naming convention (e.g. a real
+   ACME Studios deployment might use `ACME UF Code`).
 5. Click `Create Automation`.
+
+An earlier version exposed a "Confidence Threshold" input instead — removed
+2026-08-14 because it described itself as gating a prediction *model* (there
+isn't one, just a same-run similarity heuristic — see
+`codes.SIMILARITY_MATCH_THRESHOLD`) and had no observable effect on any real
+run: see that constant's comment in `codes.py` for the full reasoning. The
+property-name input replaced it as the one input that actually changes
+something visible on every run.
 
 > This is a proof-of-concept. Every prediction is currently auto-applied
 > regardless of tier — Tier 3 results are flagged, not withheld. See "What it
@@ -115,7 +123,7 @@ pins exact versions; `mise.toml` pins the Python version).
 
 **What this installs:**
 - Production dependencies (currently just `specklepy`)
-- Dev tools: `mypy`, `ruff`, `pytest`, `openpyxl` (reads the Turner reference
+- Dev tools: `mypy`, `ruff`, `pytest`, `openpyxl` (reads the source reference
   spreadsheet in the fixture-drift test)
 - The local `conditioning` package itself (this project uses a `src/` layout —
   see `src/conditioning/__init__.py` for the module map; `main.py` at the repo
@@ -225,7 +233,7 @@ Once the GitHub Action has built the image, it is sent to Speckle Automate. When
     docker run --rm conditioning-demo-poc \
     python -u main.py run \
     '{"projectId": "1234", "modelId": "1234", "branchName": "myBranch", "versionId": "1234", "speckleServerUrl": "https://speckle.xyz", "automationId": "1234", "automationRevisionId": "1234", "automationRunId": "1234", "functionId": "1234", "functionName": "my function", "functionLogo": "base64EncodedPng"}' \
-    '{"confidence_threshold": 0.65}' \
+    '{"code_property_name": "Conditioned UF Code"}' \
     yourSpeckleServerAuthenticationToken
     ```
 
@@ -236,7 +244,7 @@ Let's explain this in more detail:
 The line `python -u main.py run` is the command run inside the Docker Container Image. The rest of the command is the arguments passed to the command. The arguments are:
 
 - `'{"projectId": "1234", ...}'` - the metadata that describes the automation and the function.
-- `'{"confidence_threshold": 0.65}'` - the function's input parameters. `confidence_threshold` (0–1, default `0.65`) is the minimum similarity score accepted for a model-based prediction before it falls back to the heuristic; it does not affect the heuristic's own `METHOD_CONFIDENCE`/tier values.
+- `'{"code_property_name": "Conditioned UF Code"}'` - the function's input parameters. `code_property_name` is optional and defaults to `codes.DEFAULT_CONDITIONING_KEY`; override it to match your organisation's own naming convention (see "Using this function" above).
 - `yourSpeckleServerAuthenticationToken` — the authentication token for the Speckle Server that the Automation can connect to. This is required to interact with the Speckle Server, for example, to get data from the Model.
 
 To ship a code change, create a new [GitHub release](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) in this repository — that's what publishes a new Function version to Automate.

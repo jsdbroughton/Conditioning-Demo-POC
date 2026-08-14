@@ -21,9 +21,7 @@ def test_function_run(
     automate_sdk = run_function(
         automation_context,
         automate_function,
-        FunctionInputs(
-            confidence_threshold=0.65,
-        ),
+        FunctionInputs(),
     )
 
     assert automate_sdk.run_status == AutomationStatus.SUCCEEDED
