@@ -232,6 +232,66 @@ class TestCurtainWallCategoryHeuristic:
         assert predictions[0].predicted_code == "B2010.10"
 
 
+class TestCurtainWallLegacyCodeCrosswalk:
+    """A curtain-category wall's own pre-existing legacy code can disagree
+    with what the category alone would suggest — e.g. a legacy B2020
+    (Exterior Windows) code on a Revit 'Curtain Systems' element, which
+    Revit's category taxonomy can't distinguish from true structural curtain
+    wall (B2010). When that happens, trust the legacy code's section over
+    the bare category guess, but only at Tier 2 (2026-08-13 direction)."""
+
+    def test_legacy_code_disagreeing_section_crosswalks_to_window_wall(self):
+        wall = _wall(
+            "cs-1", category="Curtain Systems", type_name="Unremarkable Type",
+            assembly_code="B2020200",
+        )
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.predicted_code == "B2020.30"
+        assert pred.method == "heuristic_category_crosswalk"
+        assert pred.confidence == CURTAIN_LEGACY_CROSSWALK_CONFIDENCE
+        assert pred.tier == 2
+
+    def test_disagreeing_section_crosswalk_that_also_conflicts_with_function_drops_to_tier_3(self):
+        # Real case, confirmed on a live run (2026-08-13): 24 elements had
+        # category="Curtain Systems", legacy code B2020200 (crosswalks to
+        # B2020.30), AND Function="Exterior" (which independently signals
+        # B2010.10 — a different code again). Two disagreeing signals on a
+        # wall whose primary code is already just a domain-read guess, not a
+        # confirmed crosswalk — that combination deserves a closer look, not
+        # a quick one.
+        wall = _wall(
+            "cs-4", category="Curtain Systems", type_name="Unremarkable Type",
+            function="Exterior", assembly_code="B2020200",
+        )
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.predicted_code == "B2020.30"
+        assert pred.method == "heuristic_category_crosswalk"
+        assert pred.confidence == CURTAIN_LEGACY_CROSSWALK_CONFIDENCE - CONFLICT_PENALTY
+        assert pred.tier == 3
+
+    def test_legacy_code_agreeing_section_stays_on_curtain_wall(self):
+        wall = _wall(
+            "cs-2", category="Curtain Systems", type_name="Unremarkable Type",
+            assembly_code="B2010160",
+        )
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.predicted_code == "B2010.40"
+        assert pred.method == "heuristic_category"
+        assert pred.confidence == METHOD_CONFIDENCE["heuristic_category"]
+        assert pred.tier == 1
+
+    def test_no_legacy_code_stays_on_curtain_wall(self):
+        # No assembly_code at all — nothing to disagree with the category.
+        wall = _wall("cs-3", category="Curtain Systems", type_name="Unremarkable Type")
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.predicted_code == "B2010.40"
+        assert pred.method == "heuristic_category"
+
+
 class TestPerObjectConfidenceAdjustment:
     """Confidence is a per-object value, not purely a lookup by method — two
     walls classified via the same method can score differently depending on

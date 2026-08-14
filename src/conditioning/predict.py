@@ -93,12 +93,30 @@ def _heuristic_signals(wall: WallRecord) -> list[tuple[str, str, str, float]]:
     signals: list[tuple[str, str, str, float]] = []
 
     if "curtain" in wall.category.lower():
-        signals.append((
-            "B2010.40",
-            "Fabricated Exterior Wall Assemblies (Curtain Wall)",
-            "heuristic_category",
-            METHOD_CONFIDENCE["heuristic_category"],
-        ))
+        # Revit's category alone can't distinguish true structural curtain
+        # wall (B2010.40) from a storefront/window-wall system filed under a
+        # different Uniformat section entirely (B2020 "Exterior Windows") —
+        # both get modelled under the same generic "Curtain Systems"/
+        # "Curtain Panels"/"Curtain Wall Mullions" categories. If this wall
+        # already carries a legacy code whose section disagrees with B2010,
+        # trust that over the bare category guess (see codes.legacy_code_section
+        # and CURTAIN_LEGACY_CROSSWALK_CONFIDENCE) — but only at Tier 2, since
+        # this is a plausible domain read, not a confirmed crosswalk.
+        legacy_section = legacy_code_section(wall.assembly_code) if wall.is_coded else None
+        if legacy_section and legacy_section != "B2010":
+            signals.append((
+                "B2020.30",
+                "Exterior Window Wall",
+                "heuristic_category_crosswalk",
+                CURTAIN_LEGACY_CROSSWALK_CONFIDENCE,
+            ))
+        else:
+            signals.append((
+                "B2010.40",
+                "Fabricated Exterior Wall Assemblies (Curtain Wall)",
+                "heuristic_category",
+                METHOD_CONFIDENCE["heuristic_category"],
+            ))
 
     func_lower = wall.function.lower().strip()
     for keyword, (code, desc) in FUNCTION_TO_CODE.items():
