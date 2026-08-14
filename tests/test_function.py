@@ -1,5 +1,17 @@
-"""Integration tests for the Conditioning Demo POC automate function."""
+"""Integration test for the Conditioning Demo POC automate function.
 
+Unlike every other file under tests/, this one is NOT offline — the
+speckle_automate.fixtures pull real credentials from .env and this test
+performs an actual live run against the real project/model configured
+there, including writing a new "Conditioned/<model>" version. Marked
+`integration` and excluded from the default `pytest`/`pytest tests/`
+invocation (see [tool.pytest.ini_options] in pyproject.toml) so running the
+suite doesn't silently mutate a live Speckle project every time. Run it
+deliberately with `pytest tests/ -m integration` when you actually want to
+exercise the real path end-to-end.
+"""
+
+import pytest
 from speckle_automate import (
     AutomationContext,
     AutomationRunData,
@@ -11,10 +23,11 @@ from speckle_automate.fixtures import *  # noqa: F403
 from main import FunctionInputs, automate_function
 
 
+@pytest.mark.integration
 def test_function_run(
     test_automation_run_data: AutomationRunData, test_automation_token: str
 ):
-    """Run an integration test against the configured test model."""
+    """Run a live integration test against the configured real Speckle model."""
     automation_context = AutomationContext.initialize(
         test_automation_run_data, test_automation_token
     )
