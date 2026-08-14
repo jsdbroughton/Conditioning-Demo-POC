@@ -38,8 +38,10 @@ class _FakeVersion:
 
 
 class _FakeAutomationContext:
-    """Stands in for speckle_automate.AutomationContext — only the methods
-    create_conditioned_version() actually calls."""
+    """Stands in for speckle_automate.AutomationContext.
+
+    Implements only the methods create_conditioned_version() actually calls.
+    """
 
     def __init__(self) -> None:
         self.automation_run_data = SimpleNamespace(
@@ -53,24 +55,47 @@ class _FakeAutomationContext:
         assert model_id == "source-model-1"
         return SimpleNamespace(name="SHELL.rvt")
 
-    def create_new_model_in_project(self, model_name: str, model_description: str | None = None):
+    def create_new_model_in_project(
+        self,
+        model_name: str,
+        model_description: str | None = None,
+    ):
         return self.created_model
 
-    def create_new_version_in_project(self, root_object, model_id: str, version_message: str = ""):
+    def create_new_version_in_project(
+        self,
+        root_object,
+        model_id: str,
+        version_message: str = "",
+    ):
         assert model_id == self.created_model.id
         return self.created_version
 
-    def set_context_view(self, resource_ids=None, include_source_model_version: bool = True):
+    def set_context_view(
+        self,
+        resource_ids=None,
+        include_source_model_version: bool = True,
+    ):
         self.context_view_calls.append(
-            {"resource_ids": resource_ids, "include_source_model_version": include_source_model_version}
+            {
+                "resource_ids": resource_ids,
+                "include_source_model_version": include_source_model_version,
+            }
         )
 
 
 class TestCreateConditionedVersionSetsContextView:
+    """Test create conditioned version sets context view."""
     def test_context_view_adds_artifact_model_alongside_host(self):
+        """Context view adds artifact model alongside host."""
         ctx = _FakeAutomationContext()
 
-        new_version_id = create_conditioned_version(ctx, root=object(), walls=[], predictions=[])
+        new_version_id = create_conditioned_version(
+            ctx,
+            root=object(),
+            walls=[],
+            predictions=[],
+        )
 
         assert new_version_id == "artifact-version-1"
         assert ctx.context_view_calls == [
