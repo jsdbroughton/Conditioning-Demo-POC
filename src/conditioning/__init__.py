@@ -7,7 +7,7 @@ dependency on `speckle_automate.AutomationContext` except `speckle_io`, which
 is the one module that actually talks back to Speckle.
 
 Module map:
-  codes.py       Turner Uniformat code reference data + code-format detection
+  codes.py       Uniformat code reference data + code-format detection
                  (Level 4 dot-notation vs. legacy ASTM 3-digit suffix).
   walls.py       Extracting WallRecord data from raw Speckle DataObjects, and
                  classifying a wall list into coded/level4/uncoded buckets.

@@ -26,14 +26,14 @@ matching a Level 4 sub-code):
                                 Level 5 code to predict per wall the way there
                                 is at Level 4. Not modelled here.
 
-IMPORTANT: In Turner's system curtain walls are B2010.40 ("Fabricated Exterior Wall
+IMPORTANT: In this system curtain walls are B2010.40 ("Fabricated Exterior Wall
 Assemblies"), NOT B2050 ("Exterior Doors and Grilles"). This is a common mistake.
 
-The hardcoded TURNER_CODES dict below is validated against the source
-spreadsheet in tests/test_turner_codes_fixture.py (fixtures/Turner - Uniformat
-Estimate Detail Structure.xlsx) — that test is the guardrail against drift,
-not a switch to loading codes dynamically. Direction as of 2026-08-12 is to
-keep this hardcoded for now.
+The hardcoded ACME_CODES dict below is validated against the source
+spreadsheet in tests/test_acme_codes_fixture.py (fixtures/ACME Studios -
+Uniformat Estimate Detail Structure.xlsx) — that test is the guardrail
+against drift, not a switch to loading codes dynamically. Direction as of
+2026-08-12 is to keep this hardcoded for now.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-TURNER_CODES: dict[str, str] = {
+ACME_CODES: dict[str, str] = {
     # ── A2010 Subgrade / Basement Walls ─────────────────────────────────────
     "A2010":    "Walls for Subgrade Enclosures",
     "A2010.10": "Subgrade Enclosure Wall Construction",
@@ -71,7 +71,7 @@ TURNER_CODES: dict[str, str] = {
 
 # Primary prediction targets — sub-section codes applied directly to wall elements
 # (the level at which a Revit Assembly Code is typically set)
-TURNER_WALL_TARGETS: dict[str, str] = {
+ACME_WALL_TARGETS: dict[str, str] = {
     "A2010.10": "Subgrade Enclosure Wall Construction",
     "B2010.10": "Exterior Wall Veneer",
     "B2010.40": "Fabricated Exterior Wall Assemblies (Curtain Wall)",
@@ -86,7 +86,7 @@ TURNER_WALL_TARGETS: dict[str, str] = {
 # search across type name + family + function combined text.
 # ---------------------------------------------------------------------------
 
-# Revit Function parameter value → Turner code (most reliable signal)
+# Revit Function parameter value → code (most reliable signal)
 FUNCTION_TO_CODE: dict[str, tuple[str, str]] = {
     "exterior":   ("B2010.10", "Exterior Wall Veneer"),
     "interior":   ("C1010.10", "Interior Fixed Partitions"),
@@ -95,7 +95,7 @@ FUNCTION_TO_CODE: dict[str, tuple[str, str]] = {
     "curtain":    ("B2010.40", "Fabricated Exterior Wall Assemblies (Curtain Wall)"),
 }
 
-# (keyword_in_combined_text, turner_code, description) — ordered by specificity
+# (keyword_in_combined_text, code, description) — ordered by specificity
 HEURISTIC_MAP: list[tuple[str, str, str]] = [
     ("curtain wall",  "B2010.40", "Fabricated Exterior Wall Assemblies (Curtain Wall)"),
     ("curtain",       "B2010.40", "Fabricated Exterior Wall Assemblies (Curtain Wall)"),

@@ -22,16 +22,22 @@ from conditioning.walls import WallRecord
 # ---------------------------------------------------------------------------
 
 
-def imprint_predictions(walls: list[WallRecord], predictions: list[Prediction]) -> None:
+def imprint_predictions(
+    walls: list[WallRecord],
+    predictions: list[Prediction],
+    code_property_name: str = DEFAULT_CONDITIONING_KEY,
+) -> None:
     """Mutate wall objects in-place to embed conditioning output.
 
-    All output is written under a single namespaced `Turner UF Code`
-    dict (CONDITIONING_KEY) rather than several flat sibling keys — one
-    predictable place to look in the viewer/report/PowerBI, and no risk of
-    colliding with a real Revit parameter name.
+    All output is written under a single namespaced dict — keyed by
+    `code_property_name` (a user-facing Automate input as of 2026-08-14, see
+    main.FunctionInputs.code_property_name; defaults to
+    codes.DEFAULT_CONDITIONING_KEY) — rather than several flat sibling keys.
+    One predictable place to look in the viewer/report/PowerBI, and no risk
+    of colliding with a real Revit parameter name.
 
     Direction as of 2026-08-12: every non-Level4 wall (blank or an existing
-    non-Turner-format code) gets predict.predict_codes()'s fuzzy match/
+    non-conforming code) gets predict.predict_codes()'s fuzzy match/
     heuristic applied and written here — auto-applied regardless of
     confidence/tier for this POC. Tier is recorded so a future pass can gate
     on it; nothing is held back or skipped in the meantime.
@@ -87,15 +93,16 @@ def attach_viewer_annotations(
     """Attach per-object viewer annotations, grouped so each unique
     code/message is one result entry with all matching objects attached,
     rather than one entry per wall."""
-    # Turner Level 4 coded walls — gold standard, highlight separately
+    # ACME Level 4 coded walls — gold standard, highlight separately
     level4_by_code: dict[str, list] = defaultdict(list)
     for wall in level4:
         level4_by_code[wall.assembly_code or ""].append(wall.obj)
     for code, objs in sorted(level4_by_code.items()):
         automate_context.attach_info_to_objects(
-            category="Uniformat — Turner Level 4 Code",
+            category="Uniformat — ACME Level 4 Code",
             affected_objects=objs,
-            message=f"Level 4 code: {code} ({len(objs)} element{'s' if len(objs) != 1 else ''})",
+            message=f"Level 4 code: {code} — Tier 0, no work needed "
+                    f"({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
     # Non-Level4 coded walls — has a legacy-format code (e.g. ASTM B2010160).
@@ -108,7 +115,7 @@ def attach_viewer_annotations(
         automate_context.attach_info_to_objects(
             category="Uniformat — Legacy Code (remapped)",
             affected_objects=objs,
-            message=f"Original code {code!r} is not Turner Level 4 format — "
+            message=f"Original code {code!r} is not ACME Level 4 format — "
                     f"remapped, see Predicted annotations "
                     f"({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )

@@ -1,8 +1,10 @@
 # Conditioning Demo POC
 
-A Speckle Automate function, built for Turner, that predicts [Uniformat
-Assembly Codes](https://en.wikipedia.org/wiki/Uniformat) for Revit wall and
-curtain-wall elements — specifically Turner's own Level 4 dot-notation
+A Speckle Automate function, built for a construction firm (anonymized here
+as "ACME Studios" — see `docs/NOTES.md` for the 2026-08-14 anonymization
+pass), that predicts [Uniformat Assembly
+Codes](https://en.wikipedia.org/wiki/Uniformat) for Revit wall and
+curtain-wall elements — specifically that firm's own Level 4 dot-notation
 sub-codes (e.g. `B2010.10`, `C1010.40`), using their Estimate Detail
 Structure as the reference code set.
 
@@ -13,7 +15,7 @@ On every triggered version, the function:
 1. Collects all `Walls` + curtain wall family elements (`Curtain Systems`,
    `Curtain Panels`, `Curtain Wall Mullions` — Revit models these as separate
    categories from `Walls`).
-2. Classifies each one: already a Turner Level 4 code, a legacy/non-Turner
+2. Classifies each one: already an ACME Level 4 code, a legacy/non-ACME
    code (e.g. an ASTM Uniformat II 3-digit suffix like `B2010160`), or blank.
 3. Predicts a Level 4 code for everything that isn't already one — via
    similarity matching against other already-coded walls where possible,
@@ -22,23 +24,32 @@ On every triggered version, the function:
 4. Auto-applies every prediction. Nothing is left untouched or silently
    dropped — a wall with an existing legacy code keeps it recorded as
    `Original Code` alongside the new prediction.
-5. Rates every prediction **Tier 1 / 2 / 3** based on confidence:
+5. Rates every wall **Tier 0 / 1 / 2 / 3** — one unified scale for "how much
+   attention does this element need," covering both already-correct and
+   predicted walls:
+   - **Tier 0** — no work to be done. The wall already carried a genuine
+     ACME Level 4 code; nothing was predicted.
    - **Tier 1** — high confidence, candidate for auto-accept (an
      authoritative signal like Revit's own category assignment, or two or
      more independent signals on the same wall agreeing).
    - **Tier 2** — medium confidence, propagate but flag for a quick check.
-   - **Tier 3** — low/no confidence (a coin-toss single signal, conflicting
-     signals, or no signal at all) — genuinely needs a human to look at it.
+   - **Tier 3** — the bottom: not enough confidence to trust. Two different
+     things land here — genuinely no signal at all (nothing about the wall
+     resembled anything else in the model), or a signal that did fire but is
+     a lone coin-toss keyword match or actively contradicts another signal
+     on the same wall. Either way, genuinely needs a human to look at it.
 
    Tiers are recorded on every object but not currently used to gate
    anything — that's the direction of travel, not yet implemented.
 
 ### Output
 
-- A **`Turner UF Code`** property (namespaced dict — `Status`, `Level 4
-  Code`/`Level 4 Code Predicted`, `Confidence`, `Tier`, `Method`, `Original
-  Code`) written onto every wall object in a new version pushed to
-  `Conditioned/<source model name>`.
+- A namespaced property (default key `Conditioned UF Code` — see "Using this
+  function" below) written onto every wall object in a new version pushed to
+  `Conditioned/<source model name>`. Already-correct (Tier 0) walls get
+  `Status`, `Level 4 Code`, `Tier`. Predicted (Tier 1–3) walls additionally
+  get `Confidence`, `Method`, and `Original Code` (the prior legacy code, or
+  `null` if the wall was blank).
 - Per-object viewer annotations (info for existing/high-confidence
   predictions, warnings for Tier 3) so results are visible without opening
   the properties panel.
@@ -74,13 +85,13 @@ required reading to use it.*
 ```
 main.py                       — Automate function entry point (thin orchestrator only)
 src/conditioning/
-  codes.py                    — Turner code reference data, tier thresholds, format detection
+  codes.py                    — ACME code reference data, tier thresholds, format detection
   walls.py                    — WallRecord extraction from Speckle DataObjects, classify_walls()
   predict.py                  — Prediction engine: similarity match + heuristic fallback
   report.py                   — Markdown conditioning report builder
   speckle_io.py                — Everything that writes back to Speckle (imprint/annotate/version)
 tests/                        — Offline unit tests (no live Speckle calls; hand-rolled fakes)
-fixtures/                     — Source Turner Uniformat spreadsheet (guards TURNER_CODES against drift)
+fixtures/                     — Source Uniformat spreadsheet (guards ACME_CODES against drift)
 docs/NOTES.md                 — Running development log — the detailed history of every design
                                  decision, bug found, and direction change on this project
 ```
@@ -155,11 +166,11 @@ uv run pytest
 
 All tests are offline — they exercise `src/conditioning` directly against
 hand-rolled fake Speckle objects, no live server call required. `tests/
-test_turner_codes_fixture.py` is the one exception in spirit: it doesn't call
-Speckle, but it does open the source `fixtures/Turner - Uniformat Estimate
-Detail Structure.xlsx` spreadsheet and diffs it against the hardcoded
-`TURNER_CODES` dict in `codes.py`, so that dict can't silently drift from
-Turner's own reference data.
+test_acme_codes_fixture.py` is the one exception in spirit: it doesn't call
+Speckle, but it does open the source `fixtures/ACME Studios - Uniformat
+Estimate Detail Structure.xlsx` spreadsheet and diffs it against the
+hardcoded `ACME_CODES` dict in `codes.py`, so that dict can't silently drift
+from the source reference data.
 
 ### Alternative dependency managers
 
