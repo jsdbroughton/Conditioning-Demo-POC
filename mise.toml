@@ -6,7 +6,7 @@ description = "Run the offline test suite (default addopts already excludes -m i
 run = "uv run pytest tests/ -v"
 
 [tasks."test:integration"]
-description = "Run the live integration test against the real Speckle project configured in .env"
+description = "Run the live integration test against the real Speckle project configured in .env. Set CONDITIONING_CODE_PROPERTY_NAME in .env to write to a disposable property key; or override per-run with: mise run test:integration -- --code-property-name 'Some Key'"
 run = "uv run pytest tests/ -v -m integration"
 
 [tasks."test:timed"]

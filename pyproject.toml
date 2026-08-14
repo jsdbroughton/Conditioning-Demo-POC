@@ -20,6 +20,14 @@ dev = [
     "mypy==2.3.0",
     "openpyxl==3.1.5",
     "pytest==9.1.1",
+    # Read .env in tests/conftest.py. Already present in the resolved tree
+    # (specklepy -> pydantic-settings -> python-dotenv), but declared here
+    # because conftest imports it directly and a transitive dep that
+    # disappears on a dependency bump would break the test suite for a
+    # non-obvious reason. pydantic-settings reads .env into its own settings
+    # model WITHOUT exporting to os.environ, so the test suite cannot pick a
+    # value out of .env just because the SDK also reads that file.
+    "python-dotenv>=1.0",
     "ruff==0.16.3",
 ]
 
