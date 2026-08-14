@@ -13,7 +13,7 @@ from typing import Optional
 
 from speckle_automate import AutomationContext
 
-from conditioning.codes import CONDITIONING_KEY, tier_label
+from conditioning.codes import DEFAULT_CONDITIONING_KEY, tier_label
 from conditioning.predict import Prediction
 from conditioning.walls import WallRecord
 
@@ -57,19 +57,25 @@ def imprint_predictions(
             setattr(obj, "properties", props)
 
         if wall.is_level4_coded:
-            # Already correct — passed through unchanged
-            props[CONDITIONING_KEY] = {
+            # Already correct — passed through unchanged. Tier 0 ("no work
+            # to be done") added 2026-08-14 so every wall carries a Tier
+            # value, not just predicted ones — before this, "already
+            # correct" walls sat outside the Tier 1/2/3 system entirely,
+            # which made "how many walls need attention at each level"
+            # unanswerable from this property alone. See codes.TIER_LABELS.
+            props[code_property_name] = {
                 "Status": "existing",
                 "Level 4 Code": wall.assembly_code,
+                "Tier": tier_label(0),
             }
         elif pred:
             # Predicted — reachable for every non-Level4 wall (blank or an
-            # existing non-Turner-format code; see predict.predict_codes).
+            # existing non-conforming code; see predict.predict_codes).
             # "Original Code" is None for walls that had no code at all, and
             # the prior code for walls being remapped from a legacy format —
             # always present so the shape is consistent for downstream
             # consumers, never silently dropped.
-            props[CONDITIONING_KEY] = {
+            props[code_property_name] = {
                 "Status": "predicted",
                 "Level 4 Code": pred.predicted_code,
                 "Confidence": pred.confidence,

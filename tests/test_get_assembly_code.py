@@ -1,14 +1,14 @@
 """Offline unit tests for get_assembly_code()'s case normalisation.
 
 Prompted by a false alarm worth guarding against for real: a report showing
-"0 already Turner Level 4" for the Henry Ford SHELL model turned out to be
+"0 already ACME Level 4" for the target SHELL model turned out to be
 correct (verified directly against the raw Assembly Code values in Speckle —
 see docs/NOTES.md) — but while checking it, found that LEVEL4_PATTERN and
 ASTM_CODE_PATTERN only match an uppercase leading letter. A code authored
 lowercase (a plausible Revit data-entry slip, e.g. 'b2010.10') would
 previously fail is_level4_coded and get treated as an unrecognised legacy
 code needing re-prediction, even though it's already correct. get_assembly_code()
-now uppercases on the way in — Turner/ASTM Uniformat codes have no
+now uppercases on the way in — ACME/ASTM Uniformat codes have no
 legitimate lowercase form, so this is safe and unconditional, not a guess.
 """
 

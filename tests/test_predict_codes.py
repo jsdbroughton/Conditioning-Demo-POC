@@ -1,7 +1,7 @@
 """Offline unit tests for the conditioning logic — no live Speckle call.
 
 Direction as of 2026-08-12: every non-Level4 wall (blank OR carrying a
-legacy/non-Turner code, e.g. ASTM Uniformat II like B2010160) gets a real,
+legacy/non-ACME code, e.g. ASTM Uniformat II like B2010160) gets a real,
 method-based confidence score and a Tier 1/2/3 rating, and is auto-applied.
 An earlier version of this function left ASTM-coded walls untouched and
 flagged "needs review" instead of predicting — these tests assert the
@@ -431,6 +431,11 @@ class TestTierLabel:
     plain int from confidence_to_tier()."""
 
     def test_known_tiers_render_as_text(self):
+        # Tier 0 ("no work to be done") is never produced by
+        # confidence_to_tier() — it's assigned directly for already-Level4
+        # walls in speckle_io.imprint_predictions — but tier_label() still
+        # needs to render it, since that's the one place it gets written out.
+        assert tier_label(0) == "Tier 0"
         assert tier_label(1) == "Tier 1"
         assert tier_label(2) == "Tier 2"
         assert tier_label(3) == "Tier 3"

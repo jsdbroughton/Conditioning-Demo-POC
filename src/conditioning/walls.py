@@ -69,7 +69,7 @@ class WallRecord:
         """True if the Assembly Code is a legacy ASTM Uniformat II code (e.g. B2010160).
 
         These carry real classification signal (they're not blank) but aren't in
-        Turner's dot-notation format, so they need a human crosswalk decision —
+        ACME's dot-notation format, so they need a human crosswalk decision —
         they must never be silently overwritten by the prediction heuristic.
         """
         return bool(self.assembly_code and ASTM_CODE_PATTERN.match(self.assembly_code.strip()))

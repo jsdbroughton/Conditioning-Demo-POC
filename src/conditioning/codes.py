@@ -261,12 +261,13 @@ def confidence_to_tier(confidence: float) -> int:
 
 # Text labels for the tier band, used wherever Tier is written out as a
 # property value (e.g. onto Speckle objects) rather than used internally for
-# counting/sorting. A raw int (1/2/3) reads ambiguously once it's sitting in
-# a properties panel or an exported table next to other numeric parameters —
-# "Tier 1" is self-explanatory even out of context. Prediction.tier itself
-# stays an int (see predict.py) since internal logic (counting, thresholds,
-# a future auto-accept gate) wants to compare/sort on it.
-TIER_LABELS: dict[int, str] = {1: "Tier 1", 2: "Tier 2", 3: "Tier 3"}
+# counting/sorting. A raw int (0/1/2/3) reads ambiguously once it's sitting
+# in a properties panel or an exported table next to other numeric
+# parameters — "Tier 1" is self-explanatory even out of context. A wall's
+# tier stays an int internally (see predict.Prediction.tier / the level4
+# case in speckle_io.py) since internal logic (counting, thresholds, a
+# future auto-accept gate) wants to compare/sort on it.
+TIER_LABELS: dict[int, str] = {0: "Tier 0", 1: "Tier 1", 2: "Tier 2", 3: "Tier 3"}
 
 
 def tier_label(tier: int) -> str:
@@ -278,9 +279,23 @@ def tier_label(tier: int) -> str:
 # wall.properties, rather than as several flat sibling keys — keeps the
 # viewer/report/PowerBI surface predictable (one place to look) and avoids
 # ever colliding with a real Revit parameter name.
-CONDITIONING_KEY = "Turner UF Code"
+#
+# DEFAULT_CONDITIONING_KEY, not a fixed constant — 2026-08-14 direction: the
+# property name is a user-facing Automate input (FunctionInputs.
+# code_property_name in main.py) so each deployment can use its own naming
+# convention (e.g. a real ACME Studios deployment might set this to
+# "ACME UF Code") without hardcoding any specific client's name into this
+# function's source.
+# This module-level value is only the fallback used when no override is
+# passed — see speckle_io.imprint_predictions / create_conditioned_version.
+# Unlike the similarity threshold removed the same day (see
+# SIMILARITY_MATCH_THRESHOLD below), this one earns its place as a real
+# input: it changes something genuinely visible on every single run (the
+# literal property key on every wall object), not something that's never
+# once affected an output.
+DEFAULT_CONDITIONING_KEY = "Conditioned UF Code"
 
-# Matches Turner Level 4 sub-section codes: one capital letter, 4 digits, dot, 1-2 digits
+# Matches Level 4 sub-section codes: one capital letter, 4 digits, dot, 1-2 digits
 # e.g. B2010.10, C1010.40, A2010.10
 LEVEL4_PATTERN = re.compile(r"^[A-Z]\d{4}\.\d{1,2}$")
 
@@ -292,8 +307,8 @@ LEVEL4_PATTERN = re.compile(r"^[A-Z]\d{4}\.\d{1,2}$")
 COLLAPSED_LEVEL4_PATTERN = re.compile(r"^([A-Z]\d{4})(\d{2})$")
 
 # Matches legacy ASTM Uniformat II codes: one capital letter, 4 digits, then a
-# 3-digit sub-code (e.g. B2010160, C1010145). These get re-predicted to a
-# Turner Level 4 code like any other non-Level4 wall (see predict.predict_codes)
+# 3-digit sub-code (e.g. B2010160, C1010145). These get re-predicted to an
+# ACME Level 4 code like any other non-Level4 wall (see predict.predict_codes)
 # — the original code is preserved alongside the new one for traceability,
 # never silently discarded.
 ASTM_CODE_PATTERN = re.compile(r"^[A-Z]\d{4}\d{3}$")
