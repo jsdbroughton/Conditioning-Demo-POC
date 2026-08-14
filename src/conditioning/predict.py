@@ -18,11 +18,13 @@ from conditioning.codes import (
     CONFLICT_PENALTY,
     CORROBORATION_BONUS,
     CORROBORATION_CAP,
+    CURTAIN_LEGACY_CROSSWALK_CONFIDENCE,
     DEFAULT_CODE,
     FUNCTION_TO_CODE,
     HEURISTIC_MAP,
     METHOD_CONFIDENCE,
     confidence_to_tier,
+    legacy_code_section,
 )
 from conditioning.walls import WallRecord
 
@@ -36,7 +38,7 @@ class Prediction:
     description: str
     confidence: float
     tier: int                      # 1 (high) / 2 (medium) / 3 (low) — see codes.confidence_to_tier
-    method: str                    # "similarity" | "heuristic_category" | "heuristic_function" | "heuristic_name" | "default"
+    method: str                    # "similarity" | "heuristic_category" | "heuristic_category_crosswalk" | "heuristic_function" | "heuristic_name" | "default"
     matched_from: Optional[str]    # type_name of the best-scoring reference wall
 
 

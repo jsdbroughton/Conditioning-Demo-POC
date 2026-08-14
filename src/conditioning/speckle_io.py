@@ -126,6 +126,9 @@ def attach_viewer_annotations(
         elif pred.method == "heuristic_category":
             cat = "Uniformat — Predicted (curtain wall category match)"
             label = f"{pred.predicted_code} — Tier {pred.tier}"
+        elif pred.method == "heuristic_category_crosswalk":
+            cat = "Uniformat — Predicted (window wall crosswalk — verify)"
+            label = f"{pred.predicted_code} — Tier {pred.tier} (legacy code says a different section — verify)"
         elif pred.method.startswith("heuristic"):
             cat = "Uniformat — Predicted (heuristic)"
             label = f"{pred.predicted_code} — {pred.description} — Tier {pred.tier}"
