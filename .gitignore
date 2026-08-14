@@ -317,3 +317,5 @@ pyrightconfig.json
 .DS_Store
 
 conditioning_report.md
+
+docs/NOTES.md
