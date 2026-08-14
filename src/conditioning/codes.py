@@ -1,7 +1,30 @@
 """Turner Uniformat code reference data and code-format detection.
 
 Source: Turner - Uniformat Estimate Detail Structure.xlsx
-Sections: A2010 (Subgrade Walls), B2010 (Exterior Walls), C1010 (Interior Partitions)
+Sections: A2010 (Subgrade Walls), B2010 (Exterior Walls), B2020 (Exterior
+Windows — only enough of this section is included to resolve the curtain
+wall / window wall crosswalk below, not the full B2020 family), C1010
+(Interior Partitions)
+
+Turner's own code hierarchy, confirmed directly against the fixture
+spreadsheet (2026-08-12, while investigating why a legacy code wasn't
+matching a Level 4 sub-code):
+  Level 1  "A"              — major group (e.g. Substructure)
+  Level 2  "A10"             — group element
+  Level 3  "A1010" / "B2010" — individual element (a bare 4-digit section —
+                                this is what TURNER_CODES' top-level keys are)
+  Level 4  "A1010.10"        — sub-element (dot + 1-2 digits) — the level a
+                                Revit Assembly Code is typically set to, and
+                                the prediction target for this POC
+  Level 5  "A1010.10.0100"   — individual estimate/quantity-takeoff line item
+                                (dot + 2 digits + dot + 4 digits, with its own
+                                QUANTITY/UNIT columns in the source spreadsheet).
+                                NOT a per-element classification tag — a single
+                                wall assembly typically spans several Level 5
+                                line items at once (material + flashing +
+                                sealant...), so there's no single "correct"
+                                Level 5 code to predict per wall the way there
+                                is at Level 4. Not modelled here.
 
 IMPORTANT: In Turner's system curtain walls are B2010.40 ("Fabricated Exterior Wall
 Assemblies"), NOT B2050 ("Exterior Doors and Grilles"). This is a common mistake.
@@ -34,6 +57,8 @@ TURNER_CODES: dict[str, str] = {
     "B2010.60": "Equipment Screens",
     "B2010.80": "Exterior Wall Supplementary Components",
     "B2010.90": "Exterior Wall Opening Supplementary Components",
+    # ── B2020 Exterior Windows (partial — only the crosswalk target) ─────────
+    "B2020.30": "Exterior Window Wall",  # storefronts, aluminum window wall — see legacy_code_section() crosswalk below
     # ── C1010 Interior Partitions ────────────────────────────────────────────
     "C1010":    "Interior Partitions",
     "C1010.10": "Interior Fixed Partitions",   # CMU, rated/non-rated GWB
@@ -134,7 +159,25 @@ METHOD_CONFIDENCE = {
 # (see CORROBORATION_BONUS below) — a bare heuristic_function match (0.75)
 # now lands in Tier 2 unless something else on the wall agrees with it.
 TIER_1_THRESHOLD = 0.85
-TIER_2_THRESHOLD = 0.50
+#
+# TIER_2_THRESHOLD = 0.55, NOT 0.50. Originally set to 0.50 — exactly
+# heuristic_name's base confidence — which meant a bare keyword-only match
+# ("no category, no Function param, just a word in the type name") landed
+# Tier 2, "propagate but flag for a quick check". Feedback (2026-08-13): 50%
+# is a coin toss, not a "medium confidence, quick check" reading — it
+# belongs in Tier 3, "needs a human to look at it", alongside the other
+# Tier 3 case (the `default` method: no category, no Function match, no
+# keyword match at all — literally nothing shared with anything else).
+# At 0.55, a bare heuristic_name match (always exactly 0.50 — see
+# predict._heuristic_predict: it can only ever be the sole/primary signal
+# when nothing else fired, so there's nothing left to corroborate or
+# conflict it away from its base) now correctly lands Tier 3. This also
+# demotes the one case CURTAIN_LEGACY_CROSSWALK_CONFIDENCE can be pushed
+# down to by CONFLICT_PENALTY (0.65 - 0.15 = 0.50) — exactly right, since a
+# hardcoded crosswalk guess that ALSO contradicts the wall's own Function
+# parameter is precisely the kind of case that deserves a closer look, not
+# a quick one.
+TIER_2_THRESHOLD = 0.55
 
 # Per-object confidence adjustment for heuristic predictions. METHOD_CONFIDENCE
 # above is the base trust in a *signal type* (Revit's own category assignment
@@ -152,6 +195,20 @@ TIER_2_THRESHOLD = 0.50
 CORROBORATION_BONUS = 0.10
 CORROBORATION_CAP = 0.95   # stays below 1.0 — still a heuristic, never a genuine reference-wall match
 CONFLICT_PENALTY = 0.15
+
+# Confidence for the curtain-wall-vs-window-wall crosswalk (see
+# predict._heuristic_signals and legacy_code_section() below). Revit's
+# generic "Curtain Systems"/"Curtain Panels"/"Curtain Wall Mullions"
+# categories don't distinguish true structural curtain wall (Turner
+# B2010.40) from storefront/window-wall systems (Turner B2020.30) — but a
+# wall's own pre-existing legacy code sometimes does, when its section
+# prefix disagrees with B2010. B2020.30 is a plausible domain read (Turner's
+# own fixture explicitly lists storefronts/window wall aluminum there), not
+# a confirmed ASTM-to-Turner crosswalk — there's no source data mapping the
+# ASTM 3-digit suffix to a specific Turner sub-code. Deliberately capped
+# below TIER_1_THRESHOLD so this always lands Tier 2 ("suggest but verify"),
+# never auto-confident, per 2026-08-13 direction.
+CURTAIN_LEGACY_CROSSWALK_CONFIDENCE = 0.65
 
 
 def confidence_to_tier(confidence: float) -> int:
@@ -216,3 +273,19 @@ def try_normalise_to_level4(code: str) -> Optional[str]:
         if normalised in TURNER_CODES:
             return normalised
     return None
+
+
+def legacy_code_section(code: Optional[str]) -> Optional[str]:
+    """First 5 characters of a legacy (non-Level4) code — the Uniformat
+    *section* prefix, e.g. 'B2020' from 'B2020200', or bare 'B2010' as-is.
+
+    Used to sanity-check heuristics that assume a specific section (e.g. the
+    curtain wall category heuristic assumes B2010 "Exterior Walls") against
+    what a wall's own pre-existing legacy code actually says — Revit's
+    category alone can't tell true curtain wall apart from a storefront/
+    window-wall system filed under a different section (B2020 "Exterior
+    Windows"), but a human who originally coded the wall may already have.
+    """
+    if not code or len(code) < 5:
+        return None
+    return code[:5]
