@@ -26,6 +26,7 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode
 from speckle_automate import AutomateBase, AutomationContext, execute_automate_function
 
 from conditioning.codes import DEFAULT_CONDITIONING_KEY
+from conditioning.instrumentation import stage
 from conditioning.predict import predict_codes
 from conditioning.report import build_report
 from conditioning.speckle_io import (
@@ -78,8 +79,10 @@ class FunctionInputs(AutomateBase):
         """Strip the JSON Schema dialect declaration for GitHub Action compatibility.
 
         AutomateGenerateJsonSchema adds '$schema: https://json-schema.org/draft/2020-12/schema'
-        but the speckle-automate-github-action uses an AJV version that doesn't load that
-        meta-schema, causing registration to fail with 'no schema with key or ref' error.
+        but the speckle-automate-github-action uses an AJV version that doesn't load
+        that
+        meta-schema, causing registration to fail with 'no schema with key or ref'
+        error.
         Removing the field lets AJV use its default validation mode.
         """
         schema = super().model_json_schema(
@@ -98,9 +101,17 @@ def automate_function(
     function_inputs: FunctionInputs,
 ) -> None:
     """Run Uniformat conditioning on all wall elements in the triggered version."""
+    # Each stage is wrapped in `stage()` so the run log carries elapsed time
+    # and peak RSS per phase. A deployed run that dies otherwise gives you a
+    # pod exit code and nothing to attribute it to — see
+    # conditioning/instrumentation.py.
+
     # 1. Receive and traverse
-    root  = automate_context.receive_version()
-    walls = collect_walls(root)
+    with stage("receive_version"):
+        root = automate_context.receive_version()
+
+    with stage("collect_walls"):
+        walls = collect_walls(root)
 
     if not walls:
         automate_context.mark_run_success(
@@ -120,30 +131,37 @@ def automate_function(
     # 2. Predict codes for uncoded walls (threshold defaults to
     # codes.SIMILARITY_MATCH_THRESHOLD — no longer a user input, see
     # FunctionInputs docstring above)
-    predictions = predict_codes(walls)
+    with stage("predict_codes"):
+        predictions = predict_codes(walls)
 
     # 3. Per-object viewer annotations
-    attach_viewer_annotations(
-        automate_context,
-        classification.level4,
-        classification.non_level4_coded,
-        predictions,
-    )
+    with stage("attach_viewer_annotations"):
+        attach_viewer_annotations(
+            automate_context,
+            classification.level4,
+            classification.non_level4_coded,
+            predictions,
+        )
 
-    # 4. Conditioning report
-    report_md   = build_report(walls, predictions)
-    report_path = Path("conditioning_report.md")
-    report_path.write_text(report_md, encoding="utf-8")
-    try:
-        automate_context.store_file_result(report_path)
-    except Exception as exc:
-        print(f"[ConditioningPOC] Could not store report: {exc}")
+    # 4. Conditioning report. Deliberately not bound to a local: the report
+    # is the largest single string this function builds, and holding it
+    # alive through create_conditioned_version() below — the peak-memory
+    # stage, where the whole received graph is re-serialized — stacks the
+    # two high-water marks on top of each other for no reason.
+    with stage("build_and_store_report"):
+        report_path = Path("conditioning_report.md")
+        report_path.write_text(build_report(walls, predictions), encoding="utf-8")
+        try:
+            automate_context.store_file_result(report_path)
+        except Exception as exc:
+            print(f"[ConditioningPOC] Could not store report: {exc}")
 
     # 5. Create augmented 'Conditioned/<source model name>' model version
-    new_version_id = create_conditioned_version(
-        automate_context, root, walls, predictions,
-        code_property_name=function_inputs.code_property_name,
-    )
+    with stage("create_conditioned_version"):
+        new_version_id = create_conditioned_version(
+            automate_context, root, walls, predictions,
+            code_property_name=function_inputs.code_property_name,
+        )
 
     # 6. Success summary — leads with the outcome (what changed and how
     # trustworthy it is), not a raw tally, since this is the headline a
@@ -167,7 +185,10 @@ def automate_function(
             f"not just a quick check"
         )
     elif tier2_count:
-        confidence_note = f"{tier1_count} at Tier 1, {tier2_count} flagged Tier 2 for a quick review"
+        confidence_note = (
+            f"{tier1_count} at Tier 1, {tier2_count} flagged Tier 2 "
+            f"for a quick review"
+        )
     else:
         confidence_note = "every prediction landed at Tier 1 — no manual triage needed"
 
@@ -179,7 +200,9 @@ def automate_function(
         f"{confidence_note}."
     )
     if sim_count:
-        summary += f" {sim_count} matched directly against an already-coded reference wall."
+        summary += (
+            f" {sim_count} matched directly against an already-coded reference wall."
+        )
     if cat_count:
         summary += f" {cat_count} classified via Revit's own curtain wall category."
     if new_version_id:

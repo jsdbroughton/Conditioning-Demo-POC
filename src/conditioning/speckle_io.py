@@ -1,5 +1,7 @@
-"""Everything that writes back to Speckle: imprinting results onto wall
-properties, viewer annotations, and creating the 'Conditioned' model version.
+"""Everything that writes back to Speckle.
+
+Imprinting results onto wall properties, viewer annotations, and creating the
+'Conditioned' model version.
 
 This is the one module in the package that talks to
 speckle_automate.AutomationContext — everything else is plain, Speckle-free
@@ -9,7 +11,6 @@ logic.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Optional
 
 from speckle_automate import AutomationContext
 
@@ -96,9 +97,11 @@ def attach_viewer_annotations(
     non_level4_coded: list[WallRecord],
     predictions: list[Prediction],
 ) -> None:
-    """Attach per-object viewer annotations, grouped so each unique
-    code/message is one result entry with all matching objects attached,
-    rather than one entry per wall."""
+    """Attach per-object viewer annotations, grouped by unique code/message.
+
+    Each unique code/message becomes one result entry with all matching objects
+    attached, rather than one entry per wall.
+    """
     # ACME Level 4 coded walls — gold standard, highlight separately
     level4_by_code: dict[str, list] = defaultdict(list)
     for wall in level4:
@@ -141,13 +144,19 @@ def attach_viewer_annotations(
             label = f"{pred.predicted_code} — Tier {pred.tier}"
         elif pred.method == "heuristic_category_crosswalk":
             cat = "Uniformat — Predicted (window wall crosswalk — verify)"
-            label = f"{pred.predicted_code} — Tier {pred.tier} (legacy code says a different section — verify)"
+            label = (
+                f"{pred.predicted_code} — Tier {pred.tier} (legacy code says a "
+                f"different section — verify)"
+            )
         elif pred.method.startswith("heuristic"):
             cat = "Uniformat — Predicted (heuristic)"
             label = f"{pred.predicted_code} — {pred.description} — Tier {pred.tier}"
         else:
             cat = "Uniformat — Predicted (default fallback)"
-            label = f"{pred.predicted_code} — Tier {pred.tier} (low confidence — review manually)"
+            label = (
+                f"{pred.predicted_code} — Tier {pred.tier} (low confidence — review "
+                f"manually)"
+            )
         key = (cat, pred.predicted_code)
         pred_group_labels.setdefault(key, label)
         pred_groups[key].append(pred.wall.obj)
@@ -157,7 +166,10 @@ def attach_viewer_annotations(
         automate_context.attach_info_to_objects(
             category=cat,
             affected_objects=objs,
-            message=f"Predicted: {label} ({len(objs)} element{'s' if len(objs) != 1 else ''})",
+            message=(
+                f"Predicted: {label} ({len(objs)} "
+                f"element{'s' if len(objs) != 1 else ''})"
+            ),
         )
 
     # Tier 3 predictions get a second, warning-level annotation on top of
@@ -176,7 +188,8 @@ def attach_viewer_annotations(
         automate_context.attach_warning_to_objects(
             category="Uniformat — Needs Review (Tier 3)",
             affected_objects=objs,
-            message=f"Predicted {code} at Tier 3 (low/no confidence) — worth a human look "
+            message=f"Predicted {code} at Tier 3 (low/no confidence) — worth a "
+                    f"human look "
                     f"({len(objs)} element{'s' if len(objs) != 1 else ''})",
         )
 
@@ -186,9 +199,12 @@ def attach_viewer_annotations(
 # ---------------------------------------------------------------------------
 
 
-def _get_or_create_model(automate_context: AutomationContext, model_name: str, model_description: str):
-    """
-    Return a model object with an .id attribute, creating it if it doesn't exist.
+def _get_or_create_model(
+    automate_context: AutomationContext,
+    model_name: str,
+    model_description: str,
+):
+    """Return a model object with an .id attribute, creating it if it doesn't exist.
 
     create_new_model_in_project raises BRANCH_CREATE_ERROR when the model already
     exists (subsequent runs). In that case we use client.model.get_models with a
@@ -200,7 +216,9 @@ def _get_or_create_model(automate_context: AutomationContext, model_name: str, m
             model_description=model_description,
         )
     except Exception as exc:
-        if "already exists" not in str(exc).lower() and "BRANCH_CREATE_ERROR" not in str(exc):
+        if "already exists" not in str(
+            exc).lower() and "BRANCH_CREATE_ERROR" not in str(exc
+        ):
             raise
 
     # Model exists from a previous run — look it up by name via the SDK
@@ -218,7 +236,10 @@ def _get_or_create_model(automate_context: AutomationContext, model_name: str, m
         None,
     )
     if not match:
-        raise RuntimeError(f"Model '{model_name}' not found in project {project_id} after creation failed")
+        raise RuntimeError(
+            f"Model '{model_name}' not found in project {project_id} "
+            f"after creation failed"
+        )
     return match
 
 
@@ -234,11 +255,11 @@ def create_conditioned_version(
     walls: list[WallRecord],
     predictions: list[Prediction],
     code_property_name: str = DEFAULT_CONDITIONING_KEY,
-) -> Optional[str]:
-    """
-    Imprint predictions onto wall objects and push a new version into a
-    'Conditioned/<source model name>' model, creating it on first run for
-    that source and reusing it thereafter.
+) -> str | None:
+    """Imprint predictions and push a new version into a 'Conditioned' model.
+
+    Writes to 'Conditioned/<source model name>', creating it on first run for that
+    source and reusing it thereafter.
 
     Namespaced per source model — not a single shared 'Conditioned' model —
     because a workspace can have several source models feeding this function
@@ -276,7 +297,9 @@ def create_conditioned_version(
         new_version = automate_context.create_new_version_in_project(
             root_object=root,
             model_id=model.id,
-            version_message="Uniformat Assembly Code predictions applied by Conditioning Demo POC",
+            version_message=(
+                "Uniformat Assembly Code predictions applied by Conditioning Demo POC"
+            ),
         )
 
         # Add the conditioned output to the run's "View Results" viewer
@@ -298,7 +321,9 @@ def create_conditioned_version(
                 include_source_model_version=True,
             )
         except Exception as exc:
-            print(f"[ConditioningPOC] Could not add artifact model to results view: {exc}")
+            print(
+                f"[ConditioningPOC] Could not add artifact model to results view: {exc}"
+            )
 
         return new_version.id
 

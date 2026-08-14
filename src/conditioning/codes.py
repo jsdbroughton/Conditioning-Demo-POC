@@ -1,5 +1,6 @@
-"""Uniformat code reference data and code-format detection, for a
-construction firm's own estimate-detail structure (anonymized here as "ACME
+"""Uniformat code reference data and code-format detection.
+
+For a construction firm's own estimate-detail structure (anonymized here as "ACME
 Studios" — see docs/NOTES.md for the 2026-08-14 anonymization pass).
 
 Source: fixtures/ACME Studios - Uniformat Estimate Detail Structure.xlsx
@@ -41,7 +42,6 @@ against drift, not a switch to loading codes dynamically. Direction as of
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 ACME_CODES: dict[str, str] = {
     # ── A2010 Subgrade / Basement Walls ─────────────────────────────────────
@@ -51,7 +51,8 @@ ACME_CODES: dict[str, str] = {
     "A2010.90": "Subgrade Enclosure Wall Supplementary Components",
     # ── B2010 Exterior Walls ─────────────────────────────────────────────────
     "B2010":    "Exterior Walls",
-    "B2010.10": "Exterior Wall Veneer",        # masonry, precast, metal panels, GFRC, stone
+    # masonry, precast, metal panels, GFRC, stone
+    "B2010.10": "Exterior Wall Veneer",
     "B2010.20": "Exterior Wall Back-up Construction",  # CMU/metal stud backup
     "B2010.30": "Exterior Wall Interior Skin",
     "B2010.40": "Fabricated Exterior Wall Assemblies",  # ← curtain walls go here
@@ -60,7 +61,8 @@ ACME_CODES: dict[str, str] = {
     "B2010.80": "Exterior Wall Supplementary Components",
     "B2010.90": "Exterior Wall Opening Supplementary Components",
     # ── B2020 Exterior Windows (partial — only the crosswalk target) ─────────
-    "B2020.30": "Exterior Window Wall",  # storefronts, aluminum window wall — see legacy_code_section() crosswalk below
+    # storefronts, aluminum window wall — see legacy_code_section() crosswalk below
+    "B2020.30": "Exterior Window Wall",
     # ── C1010 Interior Partitions ────────────────────────────────────────────
     "C1010":    "Interior Partitions",
     "C1010.10": "Interior Fixed Partitions",   # CMU, rated/non-rated GWB
@@ -211,7 +213,8 @@ TIER_2_THRESHOLD = 0.55
 # "Interior") is a genuine data inconsistency worth flagging with lower
 # confidence, not averaging away.
 CORROBORATION_BONUS = 0.10
-CORROBORATION_CAP = 0.95   # stays below 1.0 — still a heuristic, never a genuine reference-wall match
+# stays below 1.0 — still a heuristic, never a genuine reference-wall match
+CORROBORATION_CAP = 0.95
 CONFLICT_PENALTY = 0.15
 
 # Confidence for the curtain-wall-vs-window-wall crosswalk (see
@@ -238,7 +241,8 @@ CURTAIN_LEGACY_CROSSWALK_CONFIDENCE = 0.65
 # effect on any real run: a similarity match only counts as confident when
 # the winning reference wall is ITSELF genuinely Level4-coded, and every
 # model conditioned so far (the target shell model + the 3 other client
-# project models) has zero such walls — so this line has never once been the deciding factor on
+# project models) has zero such walls — so this line has never once been the deciding
+# factor on
 # live data. Kept as a real, named constant rather than an inline literal:
 # the code path is real and would start mattering the moment a model shows
 # up with pre-existing Level4-coded walls to learn from.
@@ -314,7 +318,7 @@ COLLAPSED_LEVEL4_PATTERN = re.compile(r"^([A-Z]\d{4})(\d{2})$")
 ASTM_CODE_PATTERN = re.compile(r"^[A-Z]\d{4}\d{3}$")
 
 
-def try_normalise_to_level4(code: str) -> Optional[str]:
+def try_normalise_to_level4(code: str) -> str | None:
     """If `code` looks like a Level 4 code with the period stripped.
 
     e.g. 'B201010', return the normalised form ('B2010.10'). Otherwise return
@@ -329,9 +333,11 @@ def try_normalise_to_level4(code: str) -> Optional[str]:
     return None
 
 
-def legacy_code_section(code: Optional[str]) -> Optional[str]:
-    """First 5 characters of a legacy (non-Level4) code — the Uniformat
-    *section* prefix, e.g. 'B2020' from 'B2020200', or bare 'B2010' as-is.
+def legacy_code_section(code: str | None) -> str | None:
+    """Return the Uniformat *section* prefix of a legacy code.
+
+    The first 5 characters, e.g. 'B2020' from 'B2020200', or bare 'B2010'
+    as-is.
 
     Used to sanity-check heuristics that assume a specific section (e.g. the
     curtain wall category heuristic assumes B2010 "Exterior Walls") against

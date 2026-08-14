@@ -9,6 +9,29 @@ from conditioning.predict import Prediction
 from conditioning.walls import WallRecord, classify_walls
 
 
+def _tally(items, key_fn) -> list[tuple[tuple, int]]:
+    """Group `items` by `key_fn`, returning (key, count) ordered by count desc.
+
+    Every table in this report describes a handful of wall *types* repeated
+    across thousands of wall *instances* — a real model run produced 31,483
+    elements spanning 60 distinct type names. Emitting one markdown row per
+    element made a 62,027-row, 10 MB artifact that nobody read (and that
+    nothing consumed: per-element data already lives on the objects in the
+    Conditioned model, queryable via SQL/PowerBI, which is strictly better
+    than a text table of the same thing). Tallying instead keeps every
+    distinct outcome visible with a Count column, in ~100 rows.
+
+    Keys must be all-string tuples — the sort falls back to comparing them
+    when counts tie, and a None would raise.
+    """
+    counts: Counter = Counter(key_fn(i) for i in items)
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def _conf_str(confidence: float) -> str:
+    return f"{confidence:.0%}" if confidence > 0 else "—"
+
+
 def build_report(
     walls: list[WallRecord],
     predictions: list[Prediction],
@@ -23,7 +46,9 @@ def build_report(
 
     sim_preds  = [p for p in predictions if p.method == "similarity"]
     cat_preds  = [p for p in predictions if p.method == "heuristic_category"]
-    heur_preds = [p for p in predictions if p.method not in ("similarity", "heuristic_category")]
+    heur_preds = [
+        p for p in predictions if p.method not in ("similarity", "heuristic_category")
+    ]
     tier_counts: Counter = Counter(p.tier for p in predictions)
 
     category_counts: Counter = Counter(w.category for w in walls)
@@ -68,7 +93,8 @@ def build_report(
         f"| Tier 0 (already correct — no work needed) | {len(level4)} |",
         f"| Tier 1 (high confidence) | {tier_counts.get(1, 0)} |",
         f"| Tier 2 (medium confidence) | {tier_counts.get(2, 0)} |",
-        f"| Tier 3 (low/no confidence — no signal at all, or one too weak/contradictory to trust) | {tier_counts.get(3, 0)} |",
+        "| Tier 3 (low/no confidence — no signal at all, or one too "
+        f"weak/contradictory to trust) | {tier_counts.get(3, 0)} |",
         f"| Similarity match threshold (fixed, not user-configurable) | {threshold} |",
         "",
         "---",
@@ -84,22 +110,28 @@ def build_report(
         "flagged them for manual review instead; that undersold what the "
         "heuristic can already do and wasn't the intended POC outcome.",
         "",
-        "| Type Name | Category | Original Code | New Code | Confidence | Tier |",
-        "|-----------|----------|----------------|----------|------------|------|",
+        "| Type Name | Category | Original Code | New Code | Confidence "
+        "| Tier | Count |",
+        "|-----------|----------|----------------|----------|------------"
+        "|------|-------|",
     ]
 
     if non_level4_coded:
-        for w in sorted(non_level4_coded, key=lambda w: w.assembly_code or ""):
+        def _remap_key(w: WallRecord) -> tuple:
             p = pred_by_wall_id.get(w.object_id)
-            new_code = f"`{p.predicted_code}`" if p else "—"
-            conf_str = f"{p.confidence:.0%}" if p and p.confidence > 0 else "—"
-            tier_str = f"Tier {p.tier}" if p else "—"
-            lines.append(
-                f"| {w.type_name or '—'} | {w.category or '—'} | `{w.assembly_code}` "
-                f"| {new_code} | {conf_str} | {tier_str} |"
+            return (
+                w.type_name or "—",
+                w.category or "—",
+                f"`{w.assembly_code}`",
+                f"`{p.predicted_code}`" if p else "—",
+                _conf_str(p.confidence) if p else "—",
+                f"Tier {p.tier}" if p else "—",
             )
+
+        for key, count in _tally(non_level4_coded, _remap_key):
+            lines.append("| " + " | ".join(key) + f" | {count} |")
     else:
-        lines.append("| — | — | — | — | — | — |")
+        lines.append("| — | — | — | — | — | — | 0 |")
 
     lines += [
         "",
@@ -107,19 +139,36 @@ def build_report(
         "",
         "## Predictions (all non-Level4 elements — blank + remapped)",
         "",
-        "| # | Type Name | Category | Level | Width (mm) | Original Code | Predicted Code | Confidence | Tier | Method | Matched From |",
-        "|---|-----------|----------|-------|------------|----------------|-----------------|------------|------|--------|--------------|",
+        "Grouped by outcome — every element sharing a type name, original "
+        "code and prediction is one row with a Count. Per-element detail "
+        "isn't reproduced here: it's written onto each object in the "
+        "Conditioned model, where it can be queried directly rather than "
+        "read out of a table.",
+        "",
+        "| Type Name | Category | Original Code | Predicted Code "
+        "| Confidence | Tier | Method | Matched From | Count |",
+        "|-----------|----------|----------------|-----------------"
+        "|------------|------|--------|--------------|-------|",
     ]
 
-    for i, p in enumerate(sorted(predictions, key=lambda x: -x.confidence), 1):
-        w         = p.wall
-        conf_str  = f"{p.confidence:.0%}" if p.confidence > 0 else "—"
-        matched   = p.matched_from or "—"
-        orig_code = f"`{w.assembly_code}`" if w.is_coded else "—"
-        lines.append(
-            f"| {i} | {w.type_name or '—'} | {w.category or '—'} | {w.level or '—'} | {round(w.width_mm)} "
-            f"| {orig_code} | `{p.predicted_code}` | {conf_str} | Tier {p.tier} | {p.method} | {matched} |"
+    def _pred_key(p: Prediction) -> tuple:
+        w = p.wall
+        return (
+            w.type_name or "—",
+            w.category or "—",
+            f"`{w.assembly_code}`" if w.is_coded else "—",
+            f"`{p.predicted_code}`",
+            _conf_str(p.confidence),
+            f"Tier {p.tier}",
+            p.method,
+            p.matched_from or "—",
         )
+
+    if predictions:
+        for key, count in _tally(predictions, _pred_key):
+            lines.append("| " + " | ".join(key) + f" | {count} |")
+    else:
+        lines.append("| — | — | — | — | — | — | — | — | 0 |")
 
     tier3_preds = [p for p in predictions if p.tier == 3]
     lines += [
@@ -131,25 +180,37 @@ def build_report(
     ]
     if tier3_preds:
         lines += [
-            f"{len(tier3_preds)} prediction(s) landed at Tier 3 — not enough confidence "
-            "to trust. Two different reasons land an element here: either nothing about "
-            "it resembled anything else in the model at all (`default` method, `no clue "
-            "what this element is`), or something DID match but it's a lone, uncorroborated "
-            "signal (a coin-toss keyword match) or one that actively contradicts another "
+            f"{len(tier3_preds)} prediction(s) landed at Tier 3 — not enough "
+            "confidence to trust. Two different reasons land an element here: "
+            "either nothing about it resembled anything else in the model at "
+            "all (`default` method, `no clue "
+            "what this element is`), or something DID match but it's a lone, "
+            "uncorroborated "
+            "signal (a coin-toss keyword match) or one that actively contradicts "
+            "another "
             "signal on the same wall — see Method below for which. These are still "
             "auto-applied for this POC (see the direction-of-travel note above), but "
-            "they're the ones actually worth a human looking at, not just a quick check.",
+            "they're the ones actually worth a human looking at, not just a quick "
+            "check.",
             "",
-            "| Type Name | Category | Original Code | Predicted Code | Confidence | Method |",
-            "|-----------|----------|----------------|-----------------|------------|--------|",
+            "| Type Name | Category | Original Code | Predicted Code | Confidence | "
+            "Method | Count |",
+            "|-----------|----------|----------------|-----------------|------------|--------|-------|",
         ]
-        for p in sorted(tier3_preds, key=lambda x: x.confidence):
-            w         = p.wall
-            orig_code = f"`{w.assembly_code}`" if w.is_coded else "—"
-            lines.append(
-                f"| {w.type_name or '—'} | {w.category or '—'} | {orig_code} "
-                f"| `{p.predicted_code}` | {p.confidence:.0%} | {p.method} |"
+
+        def _tier3_key(p: Prediction) -> tuple:
+            w = p.wall
+            return (
+                w.type_name or "—",
+                w.category or "—",
+                f"`{w.assembly_code}`" if w.is_coded else "—",
+                f"`{p.predicted_code}`",
+                f"{p.confidence:.0%}",
+                p.method,
             )
+
+        for key, count in _tally(tier3_preds, _tier3_key):
+            lines.append("| " + " | ".join(key) + f" | {count} |")
     else:
         lines.append("None — every prediction cleared at least Tier 2.")
 
@@ -159,7 +220,8 @@ def build_report(
         "",
         "## Elements Not Conditioned (already ACME Level 4)",
         "",
-        "These elements already carry an ACME Level 4 code and were passed through unchanged.",
+        "These elements already carry an ACME Level 4 code and were passed through "
+        "unchanged.",
         "",
         "| Type Name | Category | Type Mark | Function | Width (mm) | Code | Count |",
         "|-----------|----------|-----------|----------|------------|------|-------|",
@@ -173,9 +235,14 @@ def build_report(
         level4_meta[key] = (w.type_mark, w.function, round(w.width_mm))
 
     if level4_counts:
-        for (type_name, category, code), count in sorted(level4_counts.items(), key=lambda x: x[0][2] or ""):
+        for (type_name, category, code), count in sorted(
+            level4_counts.items(), key=lambda x: x[0][2] or ""
+        ):
             tm, fn, ww = level4_meta.get((type_name, category, code), ("", "", 0))
-            lines.append(f"| {type_name} | {category or '—'} | {tm} | {fn} | {ww} | `{code}` | {count} |")
+            lines.append(
+                f"| {type_name} | {category or '—'} | {tm} | {fn} | {ww} "
+                f"| `{code}` | {count} |"
+            )
     else:
         lines.append("| — | — | — | — | — | _none_ | 0 |")
 

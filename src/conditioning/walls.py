@@ -1,5 +1,6 @@
-"""Extracting WallRecord data from raw Speckle DataObjects, and classifying
-a wall list into coded/level4/uncoded buckets.
+"""Extract WallRecord data from Speckle DataObjects, and classify walls.
+
+Buckets a wall list into coded / level4 / non_level4_coded / uncoded.
 
 "WallRecord" is the umbrella term for any Uniformat-conditionable envelope
 element — that's Revit's "Walls" category, plus curtain wall's separate
@@ -27,9 +28,12 @@ Data structure verified against a live client shell model (2026-07-17):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
-from conditioning.codes import ASTM_CODE_PATTERN, LEVEL4_PATTERN, try_normalise_to_level4
+from conditioning.codes import (
+    ASTM_CODE_PATTERN,
+    LEVEL4_PATTERN,
+    try_normalise_to_level4,
+)
 
 FEET_TO_MM = 304.8
 
@@ -45,14 +49,15 @@ class WallRecord:
 
     obj: object             # the DataObject (Base subclass)
     object_id: str          # wall.id
-    category: str           # "Walls" | "Curtain Systems" | "Curtain Panels" | "Curtain Wall Mullions"
+    # "Walls" | "Curtain Systems" | "Curtain Panels" | "Curtain Wall Mullions"
+    category: str
     type_name: str          # wall.type
     family: str             # wall.family
     function: str           # Construction > Function param value
     type_mark: str          # Identity Data > Type Mark param value
     width_mm: float         # Construction > Width (feet) × 304.8
     level: str              # wall.level (plain string in v3)
-    assembly_code: Optional[str]  # Identity Data > Assembly Code; None if absent
+    assembly_code: str | None  # Identity Data > Assembly Code; None if absent
 
     @property
     def is_coded(self) -> bool:
@@ -61,8 +66,13 @@ class WallRecord:
 
     @property
     def is_level4_coded(self) -> bool:
-        """True if the Assembly Code is an ACME Level 4 sub-section code (e.g. B2010.10)."""
-        return bool(self.assembly_code and LEVEL4_PATTERN.match(self.assembly_code.strip()))
+        """True if the Assembly Code is an ACME Level 4 sub-section code (e.g.
+
+        B2010.10).
+        """
+        return bool(
+            self.assembly_code and LEVEL4_PATTERN.match(self.assembly_code.strip())
+        )
 
     @property
     def is_astm_coded(self) -> bool:
@@ -72,13 +82,18 @@ class WallRecord:
         ACME's dot-notation format, so they need a human crosswalk decision —
         they must never be silently overwritten by the prediction heuristic.
         """
-        return bool(self.assembly_code and ASTM_CODE_PATTERN.match(self.assembly_code.strip()))
+        return bool(
+            self.assembly_code and ASTM_CODE_PATTERN.match(self.assembly_code.strip())
+        )
 
 
 @dataclass
 class WallClassification:
-    """Walls bucketed by code status — the same split is needed by both the
-    report and the orchestrator, so it's computed once and shared."""
+    """Walls bucketed by code status.
+
+    The same split is needed by both the report and the orchestrator, so it's computed
+    once and shared.
+    """
 
     coded: list[WallRecord] = field(default_factory=list)
     level4: list[WallRecord] = field(default_factory=list)
@@ -102,11 +117,17 @@ def classify_walls(walls: list[WallRecord]) -> WallClassification:
 
 
 def _type_params(wall_obj) -> dict:
-    """Return the Type Parameters dict from properties["Parameters"]["Type Parameters"]."""
+    """Return the Type Parameters dict from a wall's properties.
+
+    Reads properties["Parameters"]["Type Parameters"].
+    """
     props = getattr(wall_obj, "properties", None)
     if not props:
         return {}
-    params = props.get("Parameters", {}) if isinstance(props, dict) else getattr(props, "Parameters", {}) or {}
+    if isinstance(props, dict):
+        params = props.get("Parameters", {})
+    else:
+        params = getattr(props, "Parameters", {}) or {}
     if isinstance(params, dict):
         tp = params.get("Type Parameters", {})
     else:
@@ -119,10 +140,15 @@ def _pval(group: dict, name: str):
     entry = group.get(name) if isinstance(group, dict) else None
     if entry is None:
         return None
-    return entry.get("value") if isinstance(entry, dict) else getattr(entry, "value", None)
+    return entry.get(
+        "value") if isinstance(entry,
+        dict) else getattr(entry,
+        "value",
+        None,
+    )
 
 
-def get_assembly_code(wall_obj) -> Optional[str]:
+def get_assembly_code(wall_obj) -> str | None:
     """Extract Assembly Code from Identity Data > Type Parameters, or None.
 
     Uppercased on the way in — LEVEL4_PATTERN/ASTM_CODE_PATTERN only match an
@@ -183,7 +209,7 @@ def get_wall_metadata(wall_obj) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _get_category(obj) -> Optional[str]:
+def _get_category(obj) -> str | None:
     """Get category from a Speckle object, trying multiple access patterns."""
     # 1. Top-level attribute (confirmed in viewer: RevitObject has .category)
     cat = getattr(obj, "category", None)
@@ -214,7 +240,7 @@ def _get_category(obj) -> Optional[str]:
 # entirely. Matched case-insensitively/by substring on "curtain" rather than
 # an exact string, since the exact category label wasn't verified against a
 # live curtain-wall-bearing model the way "Walls" was (see docs/NOTES.md).
-def _is_target_category(category: Optional[str]) -> bool:
+def _is_target_category(category: str | None) -> bool:
     """True if `category` is a wall or curtain-wall-family Revit category."""
     if not category:
         return False
@@ -262,7 +288,7 @@ def _recursive_collect(obj, walls: list, visited: set) -> None:
 
 
 def collect_walls(root) -> list[WallRecord]:
-    """Traverse the full object graph and return all wall + curtain-wall-family elements.
+    """Traverse the object graph, returning wall and curtain-wall elements.
 
     Uses a manual recursive traversal as the primary strategy — GraphTraversal
     with empty rules can miss leaf objects nested inside Collections.
@@ -271,5 +297,7 @@ def collect_walls(root) -> list[WallRecord]:
     visited: set = set()
     _recursive_collect(root, walls, visited)
 
-    print(f"[ConditioningPOC] Visited {len(visited)} objects, found {len(walls)} walls.")
+    print(
+        f"[ConditioningPOC] Visited {len(visited)} objects, found {len(walls)} walls."
+    )
     return walls
