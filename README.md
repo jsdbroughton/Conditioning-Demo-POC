@@ -172,13 +172,21 @@ Then re-run `uv sync` to update `uv.lock`.
 uv run pytest
 ```
 
-All tests are offline — they exercise `src/conditioning` directly against
-hand-rolled fake Speckle objects, no live server call required. `tests/
-test_acme_codes_fixture.py` is the one exception in spirit: it doesn't call
-Speckle, but it does open the source `fixtures/ACME Studios - Uniformat
-Estimate Detail Structure.xlsx` spreadsheet and diffs it against the
-hardcoded `ACME_CODES` dict in `codes.py`, so that dict can't silently drift
-from the source reference data.
+`pytest tests/` runs offline by default — every test exercises
+`src/conditioning` directly against hand-rolled fake Speckle objects, no live
+server call required. `tests/test_acme_codes_fixture.py` is one exception in
+spirit: it doesn't call Speckle, but it does open the source
+`fixtures/ACME Studios - Uniformat Estimate Detail Structure.xlsx`
+spreadsheet and diffs it against the hardcoded `ACME_CODES` dict in
+`codes.py`, so that dict can't silently drift from the source reference data.
+
+The other exception is real, not in spirit: `tests/test_function.py` makes
+an actual live run against whatever project/model/token is configured in
+your `.env`, including writing a new `Conditioned/<model>` version. It's
+marked `integration` and excluded by the default `addopts` in
+`pyproject.toml`, so a bare `pytest`/`pytest tests/` never touches your live
+project — run it deliberately with `pytest tests/ -m integration` when you
+want to exercise the real end-to-end path.
 
 ### Alternative dependency managers
 
