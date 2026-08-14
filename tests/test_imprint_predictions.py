@@ -1,5 +1,6 @@
-"""Offline unit tests for imprint_predictions — the function that writes
-conditioning output onto wall objects.
+"""Offline unit tests for imprint_predictions.
+
+The function that writes conditioning output onto wall objects.
 
 Written under a single namespaced dict — keyed by `code_property_name`, a
 user-facing Automate input as of 2026-08-14, defaulting to
@@ -43,6 +44,7 @@ class TestImprintExistingLevel4Wall:
     """A wall already in ACME Level 4 format is passed through unchanged."""
 
     def test_level4_wall_gets_existing_status(self):
+        """Level4 wall gets existing status."""
         wall = _wall_with_obj("l4-1", assembly_code="B2010.10")
         imprint_predictions([wall], predictions=[])
 
@@ -57,10 +59,13 @@ class TestImprintExistingLevel4Wall:
 
 
 class TestImprintPredictedWall:
-    """A wall with no code at all gets a real prediction written, with no
-    Original Code (nothing to preserve)."""
+    """A wall with no code at all gets a real prediction written.
+
+    Original Code is None — there was nothing to preserve.
+    """
 
     def test_uncoded_wall_gets_predicted_status(self):
+        """Uncoded wall gets predicted status."""
         wall = _wall_with_obj("blank-1", function="Exterior")
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
@@ -78,12 +83,15 @@ class TestImprintPredictedWall:
 
 
 class TestImprintRemapsLegacyCode:
-    """A wall with an existing-but-non-Level4 code (e.g. legacy ASTM) gets
-    remapped and auto-applied — the original code is preserved alongside the
-    new one, never discarded. This replaces the earlier 'needs review,
-    leave untouched' behaviour."""
+    """A wall with an existing-but-non-Level4 code (e.g.
+
+    legacy ASTM) gets remapped and auto-applied — the original code is preserved
+    alongside the new one, never discarded. This replaces the earlier 'needs review,
+    leave untouched' behaviour.
+    """
 
     def test_astm_coded_wall_gets_predicted_status_with_original_preserved(self):
+        """ASTM coded wall gets predicted status with original preserved."""
         wall = _wall_with_obj("astm-1", function="Exterior", assembly_code="B2010160")
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
@@ -100,8 +108,14 @@ class TestImprintRemapsLegacyCode:
 
 
 class TestImprintCurtainWallElement:
+    """Test imprint curtain wall element."""
     def test_curtain_panel_gets_predicted_b2010_40(self):
-        wall = _wall_with_obj("cp-1", category="Curtain Panels", type_name="Glazed Panel")
+        """Curtain panel gets predicted b2010 40."""
+        wall = _wall_with_obj(
+            "cp-1",
+            category="Curtain Panels",
+            type_name="Glazed Panel",
+        )
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
@@ -113,7 +127,9 @@ class TestImprintCurtainWallElement:
 
 
 class TestConditioningKeyIsSingularNamespace:
+    """Test conditioning key is singular namespace."""
     def test_only_one_top_level_key_written(self):
+        """Only one top level key written."""
         wall = _wall_with_obj("l4-1", assembly_code="B2010.10")
         imprint_predictions([wall], predictions=[])
         assert list(wall.obj.properties.keys()) == [DEFAULT_CONDITIONING_KEY]
