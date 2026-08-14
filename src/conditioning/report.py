@@ -12,7 +12,7 @@ from conditioning.walls import WallRecord, classify_walls
 def build_report(
     walls: list[WallRecord],
     predictions: list[Prediction],
-    threshold: float,
+    threshold: float = SIMILARITY_MATCH_THRESHOLD,
 ) -> str:
     """Build a markdown conditioning report."""
     classification = classify_walls(walls)

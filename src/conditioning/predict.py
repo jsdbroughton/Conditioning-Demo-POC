@@ -1,7 +1,7 @@
 """The prediction engine: fingerprint similarity + heuristic fallback.
 
-Produces Prediction objects for every wall that doesn't already carry a
-Turner Level 4 code — that covers both walls with no code at all AND walls
+Produces Prediction objects for every wall that doesn't already carry an
+ACME Level 4 code — that covers both walls with no code at all AND walls
 with an existing non-Level4 code (e.g. legacy ASTM Uniformat II). Both get a
 real, method-based confidence score and Tier 1/2/3 rating; nothing is
 silently defaulted to 0 confidence and nothing gets skipped. See
@@ -32,7 +32,7 @@ from conditioning.walls import WallRecord
 
 @dataclass
 class Prediction:
-    """A predicted Turner Level 4 code for one non-Level4 wall."""
+    """A predicted ACME Level 4 code for one non-Level4 wall."""
 
     wall: WallRecord
     predicted_code: str
@@ -172,8 +172,15 @@ def _heuristic_predict(wall: WallRecord) -> tuple[str, str, str, float]:
     return code, desc, method, round(confidence, 3)
 
 
-def predict_codes(walls: list[WallRecord], threshold: float) -> list[Prediction]:
-    """Predict Turner Level 4 codes for every wall that isn't already Level4-coded.
+def predict_codes(
+    walls: list[WallRecord], threshold: float = SIMILARITY_MATCH_THRESHOLD
+) -> list[Prediction]:
+    """Predict ACME Level 4 codes for every wall that isn't already Level4-coded.
+
+    `threshold` defaults to codes.SIMILARITY_MATCH_THRESHOLD and is no longer
+    a user-facing Automate input (removed 2026-08-14 — see the constant's
+    comment in codes.py for why). Kept as a parameter, not inlined, purely
+    for testability — callers in production should not pass this explicitly.
 
     Prediction targets: any wall where `is_level4_coded` is False — that's
     both truly blank walls AND walls with an existing non-Level4 code (e.g.
