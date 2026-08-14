@@ -21,6 +21,7 @@ from conditioning.codes import (
     CONFLICT_PENALTY,
     CORROBORATION_BONUS,
     CORROBORATION_CAP,
+    CURTAIN_LEGACY_CROSSWALK_CONFIDENCE,
     METHOD_CONFIDENCE,
     confidence_to_tier,
     tier_label,
@@ -345,6 +346,19 @@ class TestPerObjectConfidenceAdjustment:
         assert predictions[0].confidence <= CORROBORATION_CAP
         assert predictions[0].confidence < 1.0
 
+    def test_bare_name_only_match_is_a_coin_toss_and_lands_tier_3(self):
+        # Only a type-name keyword fires — no category, no Function param.
+        # heuristic_name is only ever the primary/sole signal when nothing
+        # else fired, so there's nothing left to corroborate or conflict it
+        # away from its base (0.50) — a coin toss, not a "quick check" case.
+        # Per 2026-08-13 direction this now lands Tier 3, not Tier 2.
+        wall = _wall("name-only-1", type_name="Masonry Wall", function="")
+        predictions = predict_codes([wall], threshold=0.65)
+        pred = predictions[0]
+        assert pred.method == "heuristic_name"
+        assert pred.confidence == METHOD_CONFIDENCE["heuristic_name"]
+        assert pred.tier == 3
+
 
 class TestConfidenceReflectsMethodReliability:
     def test_default_fallback_has_zero_confidence(self):
@@ -377,9 +391,13 @@ class TestConfidenceToTier:
     def test_tier_2_band(self):
         assert confidence_to_tier(0.84) == 2
         assert confidence_to_tier(0.75) == 2  # a lone heuristic_function match no longer clears Tier 1
-        assert confidence_to_tier(0.50) == 2
+        assert confidence_to_tier(0.55) == 2
 
     def test_tier_3_band(self):
+        # 0.50 is a bare heuristic_name match (a coin toss) — no longer
+        # clears Tier 2, per 2026-08-13 direction.
+        assert confidence_to_tier(0.54) == 3
+        assert confidence_to_tier(0.50) == 3
         assert confidence_to_tier(0.49) == 3
         assert confidence_to_tier(0.0) == 3
 
