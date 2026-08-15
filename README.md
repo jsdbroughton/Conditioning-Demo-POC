@@ -162,12 +162,18 @@ room to assume otherwise.
 5. Click `Create Automation`.
 
 An earlier version exposed a "Confidence Threshold" input instead — removed
-2026-08-14 because it described itself as gating a prediction *model* (there
-isn't one, just a same-run similarity heuristic — see
-`codes.SIMILARITY_MATCH_THRESHOLD`) and had no observable effect on any real
-run: see that constant's comment in `codes.py` for the full reasoning. The
-property-name input replaced it as the one input that actually changes
-something visible on every run.
+2026-08-14 because it described itself as gating a prediction *model*, which
+overstated what it gated (a same-run similarity comparison — see
+`codes.SIMILARITY_MATCH_THRESHOLD`), and because it had no observable effect
+on any real run: see that constant's comment in `codes.py` for the full
+reasoning. The property-name input replaced it as the one input that
+actually changes something visible on every run.
+
+To be precise, since the distinction matters when talking to anyone running
+a security review: there is no *trained* model here and nothing is a
+language model or an external service. The similarity path is
+nearest-neighbour matching against other elements in the same run — an
+algorithm with no training phase and no data leaving Speckle.
 
 > This is a proof-of-concept. Every prediction is currently auto-applied
 > regardless of tier — Tier 3 results are flagged, not withheld. See "What it
