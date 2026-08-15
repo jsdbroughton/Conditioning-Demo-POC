@@ -136,6 +136,33 @@ DEFAULT_CODE = ("B2010.10", "Exterior Wall Veneer (default fallback)")
 # Revit's own element category (e.g. "Curtain Systems") is the single most
 # authoritative signal available — it's not a guess, Revit assigned it — then
 # the Function parameter, then keyword matching, then blind default.
+# Plain-English account of what actually decided a code, written onto every
+# element as "Level 4 Code Source".
+#
+# Deliberately worded to never imply a trained model, machine learning or AI.
+# Nothing here infers: these are `if` statements over Revit parameters plus a
+# token-overlap score. The distinction is not pedantry in this account —
+# there IS a separate, genuinely AI-backed capability shipping alongside
+# this, it is going through its own security review, and a property panel
+# that says "predicted by a model" would merge the two in a reader's head.
+# The same overstatement is why the `confidence_threshold` input was removed
+# on 2026-08-14: it advertised itself as gating "a model-based prediction"
+# when it gated a same-run string comparison.
+#
+# The audience is an estimator deciding whether to trust a value, so each
+# entry names the evidence, not the mechanism.
+METHOD_DESCRIPTIONS: dict[str, str] = {
+    "heuristic_category": "Revit's own element category",
+    "heuristic_category_crosswalk": (
+        "Revit's element category, cross-checked against the element's "
+        "existing code, which pointed to a different section"
+    ),
+    "heuristic_function": "the Revit Function parameter",
+    "heuristic_name": "a keyword in the element type name",
+    "similarity": "a close match to another element already carrying a code",
+    "default": "no distinguishing information — fallback code applied",
+}
+
 METHOD_CONFIDENCE = {
     "heuristic_category": 0.85,
     "heuristic_function": 0.75,
