@@ -11,9 +11,30 @@ Structure as the reference code set.
 ## Where this function lives
 
 - **Source**: [`jsdbroughton/Conditioning-Demo-POC`](https://github.com/jsdbroughton/Conditioning-Demo-POC) on GitHub. Publishing a new version is done by cutting a [GitHub release](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository) — see `.github/workflows/main.yml`.
-- **Registered function ID**: `0497988d3f`, under the [`tcco` (Turner Construction) workspace](https://app.speckle.systems/workspaces/tcco/functions) on `app.speckle.systems`.
-- **POC deployment**: 5 automations (one per model) on the [Henry Ford Wall Takeoff](https://app.speckle.systems/projects/0b23109140) project, deployed and re-deployable via the sibling `Deploy Functions to Projects` tool's `manifests/turner.yaml` spec — see that project's README for the deployment log (`logs/0b23109140.jsonl`).
+- **Registered function**: published to the client's own workspace on `app.speckle.systems`. The function ID, workspace slug and project IDs are deployment details rather than source, and are deliberately not recorded here — see "A note on client details" below.
+- **POC deployment**: 5 automations, one per source model, deployed and re-deployable via the sibling `Deploy Functions to Projects` tool's per-client manifest spec — see that project's README for the deployment log.
 - **Runtime resources**: declared at publish time via `speckle_function_recommended_cpu_m` / `speckle_function_recommended_memory_mi` in `main.yml` (currently 4000m CPU / 4000Mi memory) — see `.github/workflows/main.yml`.
+
+## A note on client details
+
+This repository is shareable and must stay that way. It carries **no client
+name, no project or building name, no workspace slug, and no live Speckle
+project, model, version or function ID.** The reference code data in
+`codes.py` is real — that is the classification the function needs to work —
+but it is attributed to the fictional "ACME Studios", and the source
+spreadsheet in `fixtures/` has had its document metadata cleared.
+
+This is easy to undo by accident. An earlier pass scrubbed the repo
+thoroughly, and a later commit adding deployment documentation reintroduced a
+client name, a building name, a workspace URL and two live IDs in a single
+section — none of which the source needs in order to build, run or be
+understood. Deployment specifics belong in the deployment tooling, not here.
+
+Worth checking before any commit that touches documentation:
+
+```bash
+grep -rEi "client-name|building-name|workspace-slug" --include=*.md --include=*.py .
+```
 
 ## What it does
 
