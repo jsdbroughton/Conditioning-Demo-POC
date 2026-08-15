@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
+from conditioning.attributes import extract_attributes
 from conditioning.codes import ACME_CODES, SIMILARITY_MATCH_THRESHOLD
 from conditioning.predict import Prediction
 from conditioning.walls import WallRecord, classify_walls
@@ -32,10 +33,117 @@ def _conf_str(confidence: float) -> str:
     return f"{confidence:.0%}" if confidence > 0 else "—"
 
 
+def _observed_attributes_section(walls: list[WallRecord]) -> list[str]:
+    """Report fire rating / STC / stud size read from type names, and coverage.
+
+    Coverage is the point of this section as much as the values are. The
+    extraction assumes a naming convention, that convention holds completely
+    in some models and not at all in others, and a reader needs to know which
+    they are looking at before they trust a breakdown built on it.
+    """
+    counts: Counter = Counter()
+    covered = 0
+    for wall in walls:
+        attrs = extract_attributes(wall.type_name)
+        if attrs:
+            covered += 1
+            counts[attrs.summary] += 1
+
+    lines = [
+        "",
+        "---",
+        "",
+        "## Observed type attributes",
+        "",
+    ]
+    if not walls:
+        return lines + ["No elements analysed."]
+
+    pct = covered / len(walls)
+    lines += [
+        f"Fire rating, acoustic rating and stud size read directly from "
+        f"element type names — **{covered:,} of {len(walls):,} elements "
+        f"({pct:.0%})** are named in a way that yields any of them.",
+        "",
+        "This is the one place the function assumes a naming convention, and "
+        "it is assumed rather than agreed. Where a model names walls "
+        "`Type H6 - Single Layer GWB - SMOKE - STC-35 - 6\" Stud` these values "
+        "are exact. Where it names them `CW_Unitized_Spandrel` or `Empty` "
+        "there is nothing to read and the elements are simply absent from the "
+        "table below — a low coverage figure describes the naming, not the "
+        "model's quality.",
+        "",
+    ]
+    if not counts:
+        return lines + [
+            "No element type names in this model follow a recognisable "
+            "rating/STC/stud convention, so no attributes were extracted.",
+        ]
+
+    lines += [
+        "| Fire rating · STC · Stud | Elements |",
+        "|--------------------------|----------|",
+    ]
+    for summary, count in counts.most_common():
+        lines.append(f"| {summary} | {count} |")
+    return lines
+
+
+def _type_group_section(type_groups: dict) -> list[str]:
+    """Render the wall-type sub-groups found within each Level 4 code.
+
+    This is the section an estimator actually reads: the Level 4 code says
+    what kind of element it is, and this says which kind of that kind. The
+    labels are derived from what the type names in each group share, so they
+    are the model's own vocabulary rather than anything imposed — which is
+    exactly what makes them a starting point for mapping onto the client's
+    own wall types rather than a substitute for it.
+    """
+    by_key: dict[str, tuple[str, int]] = {}
+    for group in type_groups.values():
+        by_key[group.key] = (group.label, group.size)
+
+    lines = [
+        "",
+        "---",
+        "",
+        "## Wall type groups",
+        "",
+        "**These groups are not a classification and carry no authority.** "
+        "They are observed by Speckle from the model's own element type "
+        "names, they do not come from any estimating standard, and the "
+        "letters A/B/C are ours — assigned by size, renumbering whenever the "
+        "model changes. Nothing here should be treated as a code.",
+        "",
+        "Element types are clustered by name similarity within each Level 4 "
+        "code, so a code covering thousands of walls can be broken down by "
+        "what those walls appear to be. Each label reports the words a "
+        "group's members have in common.",
+        "",
+        "**What this cannot do.** Similarity compares words, not meaning, so "
+        "it cannot tell a difference that matters from one that doesn't. "
+        "`Spandrel` and `Spandrel L5` differ by one word and are the same "
+        "wall; `SMOKE` and `NFR` differ by one word and are different walls. "
+        "Measured on real models, no similarity threshold separates those two "
+        "cases — so a group may well span a fire rating or acoustic rating "
+        "boundary. Read these as \"these types resemble each other\", never "
+        "as \"these types are equivalent\". Grouping by rating, STC or stud "
+        "size needs the estimating vocabulary, which is a separate input.",
+        "",
+        "| Group | Label | Elements |",
+        "|-------|-------|----------|",
+    ]
+    for key in sorted(by_key, key=lambda k: (k.split(" · ")[0], -by_key[k][1], k)):
+        label, size = by_key[key]
+        lines.append(f"| `{key}` | {label} | {size} |")
+    return lines
+
+
 def build_report(
     walls: list[WallRecord],
     predictions: list[Prediction],
     threshold: float = SIMILARITY_MATCH_THRESHOLD,
+    type_groups: dict | None = None,
 ) -> str:
     """Build a markdown conditioning report."""
     classification = classify_walls(walls)
@@ -269,6 +377,11 @@ def build_report(
 
     for code in sorted(dist):
         lines.append(f"| `{code}` | {ACME_CODES.get(code, code)} | {dist[code]} |")
+
+    lines += _observed_attributes_section(walls)
+
+    if type_groups:
+        lines += _type_group_section(type_groups)
 
     lines += ["", "---", "_Generated by Conditioning Demo POC · Speckle Automate_"]
     return "\n".join(lines)
