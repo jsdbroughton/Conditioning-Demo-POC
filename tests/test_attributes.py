@@ -69,9 +69,14 @@ class TestUnstructuredNamesYieldNothing:
             assert attrs.summary is None
 
     def test_descriptive_name_without_the_convention_yields_nothing(self):
-        """Descriptive name without the convention yields nothing."""
+        """Descriptive name without the convention yields nothing.
+
+        Shaped like a real exterior type name — a project prefix, an
+        abbreviation, a material and a location note — but carrying none of
+        the rating/STC/stud vocabulary.
+        """
         assert (
-            not extract_attributes("_HFH - BMV - Brick Masonry Veneer. 2nd fl channel")
+            not extract_attributes("_XYZ - BMV - Brick Masonry Veneer. 2nd fl channel")
         )
 
     def test_empty_name_is_safe(self):
