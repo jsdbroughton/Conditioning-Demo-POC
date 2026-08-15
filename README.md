@@ -189,12 +189,17 @@ required reading to use it.*
 ```
 main.py                       — Automate function entry point (thin orchestrator only)
 src/conditioning/
-  codes.py                    — ACME code reference data, tier thresholds, format detection
+  codes.py                    — ACME code reference data, tier thresholds, format detection,
+                                 plain-English method descriptions
   walls.py                    — WallRecord extraction from Speckle DataObjects, classify_walls()
   predict.py                  — Prediction engine: similarity match + heuristic fallback
+  attributes.py               — Fire rating / STC / stud size read from element type names
+  grouping.py                 — Clusters similar element types within each Level 4 code
   report.py                   — Markdown conditioning report builder
   speckle_io.py                — Everything that writes back to Speckle (imprint/annotate/version)
+  instrumentation.py          — Per-stage timing and peak-RSS logging
 tests/                        — Offline unit tests (no live Speckle calls; hand-rolled fakes)
+  conftest.py                 — --code-property-name option for the live integration run
 fixtures/                     — Source Uniformat spreadsheet (guards ACME_CODES against drift)
 docs/NOTES.md                 — Running development log — the detailed history of every design
                                  decision, bug found, and direction change on this project
