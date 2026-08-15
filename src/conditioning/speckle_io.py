@@ -15,7 +15,11 @@ from collections import defaultdict
 from speckle_automate import AutomationContext
 
 from conditioning.attributes import extract_attributes
-from conditioning.codes import DEFAULT_CONDITIONING_KEY, tier_label
+from conditioning.codes import (
+    DEFAULT_CONDITIONING_KEY,
+    METHOD_DESCRIPTIONS,
+    tier_label,
+)
 from conditioning.grouping import TypeGroup
 from conditioning.predict import Prediction
 from conditioning.walls import WallRecord
@@ -70,6 +74,8 @@ def imprint_predictions(
             props[code_property_name] = {
                 "Status": "existing",
                 "Level 4 Code": wall.assembly_code,
+                "Level 4 Code Source": "authored — already a valid Level 4 code",
+                "Requires Verification": False,
                 "Tier": tier_label(0),
             }
             _add_type_group(props, code_property_name, type_groups, wall)
@@ -80,15 +86,70 @@ def imprint_predictions(
             # the prior code for walls being remapped from a legacy format —
             # always present so the shape is consistent for downstream
             # consumers, never silently dropped.
+            # "Requires Verification" is the tag asked for on the 2026-08-14
+            # call — "if it makes a judgment, it would be nice if that was
+            # tagged to say, hey, please tag the verifier". It is deliberately
+            # NOT the same question as Tier. Tier asks how sure we are the
+            # code is right; this asks whether the building told us or
+            # Speckle worked it out. Note "worked out", not "predicted" and
+            # not "inferred by a model" — nothing here is trained or
+            # AI-backed, and conflating it with the separate AI capability
+            # would drag an unrelated security review onto this function.
+            # A high-confidence guess still needs a human to accept it, and
+            # before this existed a Tier 1 reading actively concealed that —
+            # 91% of one real model sat at Tier 1, including an element whose
+            # type name was literally "Empty".
+            #
+            # It is True on every predicted element, which today means every
+            # element in every model conditioned so far. That is not a
+            # degenerate flag, it is the honest headline: none of these codes
+            # came from the model, all of them are ours. Tier remains the
+            # triage axis for *which* to look at first.
+            # "predicted" is deliberate and stays, despite the wording
+            # discipline everywhere else in this dict. Prediction is not an
+            # AI-exclusive word — a rule that maps evidence to a likely value
+            # is making a prediction, and that is mechanically what happens
+            # here. It is the honest verb, so it is the one used.
+            #
+            # What had to change was never this word, it was the absence of
+            # anything saying *how*. "Level 4 Code Source" and "Requires
+            # Verification" below now answer that in plain terms, so a reader
+            # meeting "predicted" has no room to fill the gap with an
+            # assumption about models or AI. Renaming it would also break any
+            # downstream filter already written against the value, for no gain.
             props[code_property_name] = {
                 "Status": "predicted",
                 "Level 4 Code": pred.predicted_code,
+                "Level 4 Code Source": _code_source(wall, pred),
+                "Requires Verification": True,
                 "Confidence": pred.confidence,
                 "Tier": tier_label(pred.tier),
                 "Method": pred.method,
                 "Original Code": wall.assembly_code if wall.is_coded else None,
             }
             _add_type_group(props, code_property_name, type_groups, wall)
+
+
+def _code_source(wall: WallRecord, pred: Prediction) -> str:
+    """Say, in an estimator's words, where a derived code came from.
+
+    Two facts a reviewer needs and cannot otherwise get: that Speckle worked
+    this out rather than reading it, and what evidence it worked it out
+    from. `Method` already carries the second in our vocabulary
+    (`heuristic_category`); this says it in theirs.
+
+    Wording avoids "model", "predicted by", "AI" and "machine learning"
+    throughout — see codes.METHOD_DESCRIPTIONS for why that precision is
+    load-bearing rather than fussy. "Derived" is the honest verb: these are
+    rules over Revit parameters plus a string comparison.
+    """
+    basis = METHOD_DESCRIPTIONS.get(pred.method, pred.method)
+    prior = (
+        f"replacing the existing code {wall.assembly_code}"
+        if wall.is_coded
+        else "no code was present on the element"
+    )
+    return f"Derived by Speckle from {basis} — {prior}"
 
 
 def _add_type_group(
@@ -114,9 +175,9 @@ def _add_type_group(
         group = type_groups.get(wall.object_id)
         if group is not None:
             props[code_property_name].update({
-                "Type Group": group.key,
-                "Type Group Label": group.label,
-                "Type Group Size": group.size,
+                "Inferred Type Group": group.key,
+                "Inferred Group Label": group.label,
+                "Inferred Group Size": group.size,
             })
 
     # Attributes read straight off the type name, where its naming allows.

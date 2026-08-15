@@ -51,9 +51,16 @@ class TestImprintExistingLevel4Wall:
         result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
         # Tier 0 ("no work to be done") added 2026-08-14 — every wall now
         # carries a Tier, not just predicted ones. See codes.TIER_LABELS.
+        #
+        # This is the only case where Requires Verification is False, and it
+        # is the reason the flag is worth having: a reviewer filtering on it
+        # gets exactly the elements Speckle decided, and nothing that the
+        # model already asserted for itself.
         assert result == {
             "Status": "existing",
             "Level 4 Code": "B2010.10",
+            "Level 4 Code Source": "authored — already a valid Level 4 code",
+            "Requires Verification": False,
             "Tier": "Tier 0",
         }
 
