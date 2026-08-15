@@ -176,6 +176,7 @@ def automate_function(
         new_version_id = create_conditioned_version(
             automate_context, root, walls, predictions,
             code_property_name=function_inputs.code_property_name,
+            type_groups=type_groups,
         )
 
     # 6. Success summary — leads with the outcome (what changed and how
