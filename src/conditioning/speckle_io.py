@@ -306,6 +306,7 @@ def create_conditioned_version(
     walls: list[WallRecord],
     predictions: list[Prediction],
     code_property_name: str = DEFAULT_CONDITIONING_KEY,
+    type_groups: dict[str, TypeGroup] | None = None,
 ) -> str | None:
     """Imprint predictions and push a new version into a 'Conditioned' model.
 
@@ -331,7 +332,12 @@ def create_conditioned_version(
 
     Returns the new version ID, or None on failure.
     """
-    imprint_predictions(walls, predictions, code_property_name=code_property_name)
+    imprint_predictions(
+        walls,
+        predictions,
+        code_property_name=code_property_name,
+        type_groups=type_groups,
+    )
 
     try:
         source_model_name = _get_source_model_name(automate_context)
