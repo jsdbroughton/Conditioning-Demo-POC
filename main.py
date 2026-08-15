@@ -26,6 +26,7 @@ from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode
 from speckle_automate import AutomateBase, AutomationContext, execute_automate_function
 
 from conditioning.codes import DEFAULT_CONDITIONING_KEY
+from conditioning.grouping import assign_type_groups
 from conditioning.instrumentation import stage
 from conditioning.predict import predict_codes
 from conditioning.report import build_report
@@ -134,6 +135,17 @@ def automate_function(
     with stage("predict_codes"):
         predictions = predict_codes(walls)
 
+    # 2b. Sub-group wall types within each predicted code. A Level 4 code on
+    # its own answers "what kind of element" and immediately raises "yes, but
+    # which one" — a 6" smoke partition and a furring wall are both
+    # C1010.10 and cost nothing like each other. See conditioning/grouping.py.
+    with stage("assign_type_groups"):
+        type_groups = assign_type_groups(walls, predictions)
+        print(
+            f"[ConditioningPOC] {len(set(g.key for g in type_groups.values()))} "
+            f"wall-type groups across {len(walls)} elements."
+        )
+
     # 3. Per-object viewer annotations
     with stage("attach_viewer_annotations"):
         attach_viewer_annotations(
@@ -150,7 +162,10 @@ def automate_function(
     # two high-water marks on top of each other for no reason.
     with stage("build_and_store_report"):
         report_path = Path("conditioning_report.md")
-        report_path.write_text(build_report(walls, predictions), encoding="utf-8")
+        report_path.write_text(
+            build_report(walls, predictions, type_groups=type_groups),
+            encoding="utf-8",
+        )
         try:
             automate_context.store_file_result(report_path)
         except Exception as exc:
