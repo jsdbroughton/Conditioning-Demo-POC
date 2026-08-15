@@ -52,7 +52,22 @@ On every triggered version, the function:
 4. Auto-applies every prediction. Nothing is left untouched or silently
    dropped — a wall with an existing legacy code keeps it recorded as
    `Original Code` alongside the new prediction.
-5. Rates every wall **Tier 0 / 1 / 2 / 3** — one unified scale for "how much
+5. Reads **fire rating, acoustic rating and stud size** off the element type
+   name, where the naming allows it — a type called
+   `Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud` yields
+   `SMOKE · STC-35 · 6" Stud`. This is the one place the function assumes a
+   naming convention. Where a model doesn't follow one the properties are
+   simply absent rather than guessed, and each run reports its own coverage
+   so you can tell which case you're in. See `attributes.py`.
+6. **Groups similar element types** within each Level 4 code, so a code
+   covering thousands of walls breaks into recognisable families. This is
+   what serves models whose type names carry no convention at all
+   (`CW_Unitized_Spandrel`, `CW1D`, `20d panel`). Groups are our observation,
+   not a classification — see the caveat in "Output" below and `grouping.py`.
+7. Records, on every element, **whether the model authored the code or the
+   function derived it** (`Requires Verification`), and in plain terms
+   **what evidence it was derived from** (`Level 4 Code Source`).
+8. Rates every wall **Tier 0 / 1 / 2 / 3** — one unified scale for "how much
    attention does this element need," covering both already-correct and
    predicted walls:
    - **Tier 0** — no work to be done. The wall already carried a genuine
@@ -70,20 +85,67 @@ On every triggered version, the function:
    Tiers are recorded on every object but not currently used to gate
    anything — that's the direction of travel, not yet implemented.
 
+   **Tier is not the same question as `Requires Verification`.** Tier asks
+   how confident we are that a code is right; `Requires Verification` asks
+   whether the building told us or the function worked it out. A
+   high-confidence result still needs a person to accept it. Keeping them
+   apart matters: on one real model 91% of elements sat at Tier 1, including
+   an element whose type name was literally `Empty`, so reading Tier alone
+   as "already checked" would be badly wrong.
+
 ### Output
 
-- A namespaced property (default key `Conditioned UF Code` — see "Using this
-  function" below) written onto every wall object in a new version pushed to
-  `Conditioned/<source model name>`. Already-correct (Tier 0) walls get
-  `Status`, `Level 4 Code`, `Tier`. Predicted (Tier 1–3) walls additionally
-  get `Confidence`, `Method`, and `Original Code` (the prior legacy code, or
-  `null` if the wall was blank).
+A single namespaced property (default key `Conditioned UF Code` — see "Using
+this function" below) written onto every wall object in a new version pushed
+to `Conditioned/<source model name>`. Everything goes in that one dict:
+one place to look in the viewer, one thing to select in Power BI, and no
+chance of colliding with a real Revit parameter name.
+
+| Key | On | Meaning |
+|-----|-----|---------|
+| `Status` | all | `existing` (model already had a valid code) or `predicted` |
+| `Level 4 Code` | all | The code the element ends up carrying |
+| `Level 4 Code Source` | all | Plain English: authored by the model, or derived by the function and from what evidence |
+| `Requires Verification` | all | `False` only where the model authored a valid code — today `True` on everything |
+| `Tier` | all | Tier 0–3, see above |
+| `Confidence` | predicted | 0.0–0.95 |
+| `Method` | predicted | `heuristic_category`, `heuristic_function`, `similarity`, … |
+| `Original Code` | predicted | The prior legacy code, or `null` if the element was blank |
+| `Observed Type Attributes` | where named | e.g. `SMOKE · STC-35 · 6" Stud` |
+| `Observed Fire Rating` / `Observed Acoustic STC` / `Observed Stud Size` | where named | The same three, separately, for filtering |
+| `Inferred Type Group` | all | e.g. `C1010.10 · inferred group A` |
+| `Inferred Group Label` / `Inferred Group Size` | all | What the group's members share, and how many elements |
+
+**`Observed` and `Inferred` mean different things, deliberately.**
+*Observed* values are transcribed from the architect's own type name — the
+name says `SMOKE`, so the property says `SMOKE`. *Inferred* values are the
+function's judgement about which elements resemble each other, and that
+judgement is known to be capable of spanning a fire-rating boundary (see
+`grouping.py`). Neither is a client classification, neither carries any
+authority, and the A/B/C letters in a group key are ours — assigned by size,
+and they renumber when the model changes.
+
+**Nothing here involves a trained model or any AI service.** The function is
+rules over Revit parameters plus a text comparison between elements. No data
+leaves Speckle. The word "predicted" is used in its ordinary sense — a rule
+mapping evidence to a likely value is making a prediction — and
+`Level 4 Code Source` states the mechanism on every element so there is no
+room to assume otherwise.
 - Per-object viewer annotations (info for existing/high-confidence
   predictions, warnings for Tier 3) so results are visible without opening
   the properties panel.
 - A markdown conditioning report (`conditioning_report.md`) attached as a
-  run artifact, with a full breakdown by category, method, tier, and a
-  dedicated "Needs a Closer Look (Tier 3)" section.
+  run artifact: breakdowns by category, method and tier, a "Needs a Closer
+  Look (Tier 3)" section, an "Observed type attributes" section that leads
+  with its own coverage percentage, and a "Wall type groups" section. Every
+  table is aggregated with a count column rather than one row per element —
+  an earlier per-element version ran to 62,000 rows and 10 MB, which nobody
+  read and which duplicated data already queryable on the objects
+  themselves.
+- Per-stage timing and peak memory in the run log, e.g.
+  `[ConditioningPOC][timing] create_conditioned_version: 61.2s, peak RSS
+  1834 MiB` — so a failed deployment can be attributed rather than guessed
+  at.
 - The run report's viewer links to both the host model (where the
   interactive per-object annotations resolve) and the new conditioned
   version, via `set_context_view`.
