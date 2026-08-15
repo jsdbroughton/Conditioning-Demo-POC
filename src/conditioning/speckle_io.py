@@ -14,7 +14,9 @@ from collections import defaultdict
 
 from speckle_automate import AutomationContext
 
+from conditioning.attributes import extract_attributes
 from conditioning.codes import DEFAULT_CONDITIONING_KEY, tier_label
+from conditioning.grouping import TypeGroup
 from conditioning.predict import Prediction
 from conditioning.walls import WallRecord
 
@@ -27,6 +29,7 @@ def imprint_predictions(
     walls: list[WallRecord],
     predictions: list[Prediction],
     code_property_name: str = DEFAULT_CONDITIONING_KEY,
+    type_groups: dict[str, TypeGroup] | None = None,
 ) -> None:
     """Mutate wall objects in-place to embed conditioning output.
 
@@ -69,6 +72,7 @@ def imprint_predictions(
                 "Level 4 Code": wall.assembly_code,
                 "Tier": tier_label(0),
             }
+            _add_type_group(props, code_property_name, type_groups, wall)
         elif pred:
             # Predicted — reachable for every non-Level4 wall (blank or an
             # existing non-conforming code; see predict.predict_codes).
@@ -84,6 +88,53 @@ def imprint_predictions(
                 "Method": pred.method,
                 "Original Code": wall.assembly_code if wall.is_coded else None,
             }
+            _add_type_group(props, code_property_name, type_groups, wall)
+
+
+def _add_type_group(
+    props: dict,
+    code_property_name: str,
+    type_groups: dict[str, TypeGroup] | None,
+    wall: WallRecord,
+) -> None:
+    """Add the wall-type sub-grouping to the conditioning dict, if computed.
+
+    Deliberately written into the SAME namespaced dict as the code itself
+    rather than as sibling properties. The conditioning output is one thing
+    to look for in the viewer, one thing to select in Power BI, and one
+    thing that can't collide with a real Revit parameter — splitting the
+    group across separate top-level keys would give up all three for no
+    gain. See grouping.py for what the group means and why it is not a
+    finer Uniformat code.
+
+    Absent when no grouping was computed, rather than present-and-null: the
+    keys only appear on runs that actually produced groups.
+    """
+    if type_groups:
+        group = type_groups.get(wall.object_id)
+        if group is not None:
+            props[code_property_name].update({
+                "Type Group": group.key,
+                "Type Group Label": group.label,
+                "Type Group Size": group.size,
+            })
+
+    # Attributes read straight off the type name, where its naming allows.
+    # A separate axis from the group on purpose: the group is "what does this
+    # resemble", these are "what does the name actually assert". Keys are
+    # omitted entirely when the name yields nothing — a blank that is visibly
+    # blank beats a null that reads like a measured absence. See
+    # attributes.py for why similarity cannot produce these.
+    attrs = extract_attributes(wall.type_name)
+    if attrs:
+        observed = {"Observed Type Attributes": attrs.summary}
+        if attrs.fire_rating:
+            observed["Observed Fire Rating"] = attrs.fire_rating
+        if attrs.stc:
+            observed["Observed Acoustic STC"] = attrs.stc
+        if attrs.stud:
+            observed["Observed Stud Size"] = f'{attrs.stud}"'
+        props[code_property_name].update(observed)
 
 
 # ---------------------------------------------------------------------------
