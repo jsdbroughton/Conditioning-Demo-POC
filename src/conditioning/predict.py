@@ -158,7 +158,9 @@ def _heuristic_signals(wall: WallRecord) -> list[tuple[str, str, str, float]]:
     """
     signals: list[tuple[str, str, str, float]] = []
 
-    if "curtain" in wall.category.lower():
+    category_is_curtain = "curtain" in wall.category.lower()
+
+    if category_is_curtain:
         # Revit's category alone can't distinguish true structural curtain
         # wall (B2010.40) from a storefront/window-wall system filed under a
         # different Uniformat section entirely (B2020 "Exterior Windows") —
@@ -189,6 +191,21 @@ def _heuristic_signals(wall: WallRecord) -> list[tuple[str, str, str, float]]:
     func_lower = wall.function.lower().strip()
     for keyword, (code, desc) in FUNCTION_TO_CODE.items():
         if keyword in func_lower:
+            # A Function of "Curtain" on an element Revit already filed under
+            # a curtain category is the same fact restated, not a second
+            # opinion — Revit sets that Function *because* of the category.
+            # Counting it separately let CORROBORATION_BONUS lift every
+            # curtain element from 0.85 to 0.95, i.e. to the top of the
+            # confidence scale, on one piece of evidence. A wall type
+            # literally named "Empty" was scoring 0.95 and Tier 1 that way.
+            #
+            # This is the same self-corroboration trap already documented
+            # below for the type-name keyword loop (2026-08-12), which was
+            # fixed there and missed here. A Function that DISAGREES with the
+            # category still fires — that is a real conflict and should cost
+            # confidence, which is exactly what happens.
+            if category_is_curtain and keyword == "curtain":
+                break
             signals.append(
                 (code, desc, "heuristic_function",
                  METHOD_CONFIDENCE["heuristic_function"])
