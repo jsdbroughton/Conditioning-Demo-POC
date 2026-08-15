@@ -320,3 +320,10 @@ conditioning_report.md
 
 docs/NOTES.md
 docs/STATE.md
+
+# Client correspondence drafts. These necessarily carry real names, real
+# project names and real email context, and this repo is shareable — so they
+# are written, sent and kept outside it. See "A note on client details" in
+# the README.
+email-draft-*.md
+*.draft.md
