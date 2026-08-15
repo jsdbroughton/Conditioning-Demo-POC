@@ -79,7 +79,7 @@ _WORD = re.compile(r"[A-Za-z0-9]+")
 class TypeGroup:
     """One cluster of similar wall types within a single Level 4 code."""
 
-    key: str      # "C1010.10 · observed group A" — the letter is ours, see _OBSERVED
+    key: str      # "C1010.10 · inferred group A" — the letter is ours, see _INFERRED
     label: str    # derived from what the members share: "CW Unitized IGU"
     size: int     # number of elements, not number of type names
 
@@ -124,7 +124,7 @@ def _label_from(seed_name: str, shared: set[str], fallback: str) -> str:
     return " ".join(dict.fromkeys(words)) or fallback
 
 
-# Group keys read "C1010.10 · observed group A", never "C1010.10-A".
+# Group keys read "C1010.10 · inferred group A", never "C1010.10-A".
 #
 # The hyphenated form was the first cut and it was a bad idea: it has the
 # shape of a code. Pasted into a spreadsheet beside real Uniformat values it
@@ -134,7 +134,7 @@ def _label_from(seed_name: str, shared: set[str], fallback: str) -> str:
 # have no authority, and will renumber if the model changes. The key says so
 # in the key, because that is the only place guaranteed to travel with the
 # value into a pivot table.
-_OBSERVED = "observed group"
+_INFERRED = "inferred group"
 
 
 def _key_suffix(index: int) -> str:
@@ -224,7 +224,7 @@ def assign_type_groups(
         # identically-named rows is worse than a slightly clumsy label.
         used: set[str] = set()
         for i, cluster in enumerate(clusters):
-            key = f"{code} · {_OBSERVED} {_key_suffix(i)}"
+            key = f"{code} · {_INFERRED} {_key_suffix(i)}"
             label = _label_from(
                 cluster["seed_name"],
                 cluster["shared"],

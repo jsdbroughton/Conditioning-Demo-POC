@@ -88,8 +88,8 @@ class TestGroupsAreScopedToTheirCode:
         exterior = _wall("e", "Type A - Partition", function="Exterior")
         groups = _grouped([interior, exterior])
 
-        assert groups["i"].key.startswith("C1010.10 · observed group ")
-        assert groups["e"].key.startswith("B2010.10 · observed group ")
+        assert groups["i"].key.startswith("C1010.10 · inferred group ")
+        assert groups["e"].key.startswith("B2010.10 · inferred group ")
         assert groups["i"].key != groups["e"].key
 
 
@@ -103,7 +103,7 @@ class TestKeysAndLabels:
             + [_wall("small", "BRAKE METAL SLIDER ENCLOSURE WALL")]
         )
         groups = _grouped(walls)
-        assert groups["big0"].key.endswith("observed group A")
+        assert groups["big0"].key.endswith("inferred group A")
         assert groups["big0"].size == 5
         assert groups["small"].size == 1
 
@@ -150,4 +150,4 @@ class TestGroupingDoesNotDisturbClassification:
     def test_already_level4_walls_are_grouped_under_their_existing_code(self):
         """Already-Level4 walls are grouped under their existing code."""
         wall = _wall("a", "Curtain Panel Type 1", assembly_code="B2010.40")
-        assert _grouped([wall])["a"].key.startswith("B2010.40 · observed group ")
+        assert _grouped([wall])["a"].key.startswith("B2010.40 · inferred group ")
