@@ -28,7 +28,7 @@ dev = [
     # model WITHOUT exporting to os.environ, so the test suite cannot pick a
     # value out of .env just because the SDK also reads that file.
     "python-dotenv>=1.0",
-    "ruff==0.16.3",
+    "ruff==0.16.4",
 ]
 
 [tool.pytest.ini_options]
