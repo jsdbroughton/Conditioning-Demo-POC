@@ -312,6 +312,11 @@ def read_element(obj) -> ElementRecord | None:
     if not category or not obj.application_id:
         return None
     raw_code = _param(obj, "Identity Data", "Assembly Code")
+    # HOSTED_IN and SUBELEMENT are typed relations on the bundle, read off
+    # the object rather than a property: `.host` is the wall a door/window
+    # sits in, `.parent` the element a railing support/handrail belongs to.
+    host = getattr(obj, "host", None)
+    parent = getattr(obj, "parent", None)
     return ElementRecord(
         obj=obj,
         object_id=obj.application_id,
@@ -321,6 +326,11 @@ def read_element(obj) -> ElementRecord | None:
         function=str(_param(obj, "Construction", "Function") or "").strip(),
         type_mark=str(_param(obj, "Identity Data", "Type Mark") or "").strip(),
         assembly_code=str(raw_code).strip().upper() or None if raw_code else None,
+        host_function=(
+            str(_param(host, "Construction", "Function") or "").strip()
+            if host is not None else ""
+        ),
+        parent_id=getattr(parent, "application_id", None) if parent else None,
     )
 
 
