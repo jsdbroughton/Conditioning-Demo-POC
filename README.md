@@ -300,14 +300,21 @@ src/conditioning/
   predict.py                  — Prediction engine: similarity match + heuristic fallback
   attributes.py               — Fire rating / wall tag (parameter-first, name fallback) / STC /
                                  stud size / height bucketing
-  grouping.py                 — Clusters similar element types within each Level 4 code, plus
-                                 each group's description and Type Mark/Fire Rating/etc. rollups
+  grouping.py                 — Clusters similar element types within each Level 4 code, as a
+                                 3-tier hierarchy (coarse name-similarity -> +fire/acoustic
+                                 -> +height band), plus each row's description and rollups
+  categories.py               — Level 4 codes for every non-wall category: the wall engine's
+                                 corroborate/conflict mechanism over a per-category rule table
+                                 (unreviewed judgements — see its docstring)
+  acme_reference.py           — GENERATED: the client's full 679-code structure, from fixtures/
   report.py                   — Markdown conditioning report builder
   speckle_io.py                — Everything that writes back to Speckle (imprint/annotate/version)
   instrumentation.py          — Per-stage timing and peak-RSS logging
 tests/                        — Offline unit tests (no live Speckle calls; hand-rolled fakes)
   conftest.py                 — --code-property-name option for the live integration run
-fixtures/                     — Source Uniformat spreadsheet (guards ACME_CODES against drift)
+fixtures/                     — Source Uniformat spreadsheet; acme_reference.py is generated
+                                 from it (scripts/regenerate_acme_reference.py) and the
+                                 fixture test guards both it and ACME_WALL_CODES against drift
 docs/NOTES.md                 — Running development log — the detailed history of every design
                                  decision, bug found, and direction change on this project
 ```
@@ -390,8 +397,8 @@ spreadsheet and diffs it against the hardcoded `ACME_CODES` dict in
 
 The other exception is real, not in spirit: `tests/test_function.py` makes
 an actual live run against whatever project/model/token is configured in
-your `.env`, including writing a new `Conditioned/<model>` version. It's
-marked `integration` and excluded by the default `addopts` in
+your `.env`, including writing new `Conditioned/Walls/<model>` and `Conditioned/All/<model>`
+versions. It's marked `integration` and excluded by the default `addopts` in
 `pyproject.toml`, so a bare `pytest`/`pytest tests/` never touches your live
 project — run it deliberately with `pytest tests/ -m integration` when you
 want to exercise the real end-to-end path.
