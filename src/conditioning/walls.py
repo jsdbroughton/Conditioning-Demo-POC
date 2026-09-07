@@ -194,13 +194,23 @@ def get_wall_metadata(wall_obj) -> dict:
     except (TypeError, ValueError):
         width_mm = 0.0
 
+    # Instance Parameters, not Type Parameters — see _instance_params().
+    constraints = _instance_params(wall_obj).get("Constraints", {})
+    height_raw = _pval(constraints, "Unconnected Height") or 0.0
+    try:
+        height_mm = float(height_raw) * FEET_TO_MM
+    except (TypeError, ValueError):
+        height_mm = 0.0
+
     return {
-        "type_name": type_name,
-        "family":    family,
-        "function":  function,
-        "type_mark": type_mark,
-        "width_mm":  width_mm,
-        "level":     level,
+        "type_name":    type_name,
+        "family":       family,
+        "function":     function,
+        "type_mark":    type_mark,
+        "fire_rating":  fire_rating,
+        "width_mm":     width_mm,
+        "height_mm":    height_mm,
+        "level":        level,
     }
 
 

@@ -180,22 +180,40 @@ def _add_type_group(
                 "Inferred Group Size": group.size,
             })
 
-    # Attributes read straight off the type name, where its naming allows.
-    # A separate axis from the group on purpose: the group is "what does this
-    # resemble", these are "what does the name actually assert". Keys are
-    # omitted entirely when the name yields nothing — a blank that is visibly
+    # Attributes read off the type name and/or the wall's own parameters
+    # (Fire Rating, Type Mark) — see attributes.py's 2026-09-07 note for why
+    # the parameter is preferred over the name-regex where both exist. A
+    # separate axis from the group on purpose: the group is "what does this
+    # resemble", these are "what does the wall actually assert". Keys are
+    # omitted entirely when nothing is asserted — a blank that is visibly
     # blank beats a null that reads like a measured absence. See
     # attributes.py for why similarity cannot produce these.
-    attrs = extract_attributes(wall.type_name)
+    attrs = extract_attributes(
+        wall.type_name,
+        fire_rating_param=wall.fire_rating,
+        wall_tag=wall.type_mark,
+    )
     if attrs:
         observed = {"Observed Type Attributes": attrs.summary}
         if attrs.fire_rating:
             observed["Observed Fire Rating"] = attrs.fire_rating
+            observed["Observed Fire Rating Source"] = attrs.fire_rating_source
         if attrs.stc:
             observed["Observed Acoustic STC"] = attrs.stc
         if attrs.stud:
             observed["Observed Stud Size"] = f'{attrs.stud}"'
+        if attrs.wall_tag:
+            observed["Observed Wall Tag"] = attrs.wall_tag
         props[code_property_name].update(observed)
+
+    # Height is a genuine per-instance value, not a per-type one — never
+    # routed through extract_attributes()/TypeAttributes (see attributes.py's
+    # module docstring for why). Written independently of whether `attrs`
+    # yielded anything, since a wall can have a height with no other
+    # attribute asserted at all.
+    height_label = bucket_height_ft(wall.height_mm)
+    if height_label:
+        props[code_property_name]["Observed Height"] = height_label
 
 
 # ---------------------------------------------------------------------------
