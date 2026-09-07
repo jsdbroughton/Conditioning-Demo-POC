@@ -10,6 +10,13 @@ one", per codes.py) shouldn't require scrolling a big per-method table.
 attach_viewer_annotations() now also fires a dedicated, warning-level
 annotation for every Tier 3 prediction, grouped by predicted code and
 independent of which method produced it.
+
+2026-09-07: attach_viewer_annotations() now passes a _ResultRef (id ==
+applicationId == wall.object_id) to attach_info_to_objects/
+attach_warning_to_objects instead of `wall.obj` directly — a bundle
+ModelObject has no `.id` for AutomationContext to key its result dict on
+(see speckle_io.py's _ResultRef docstring). These tests check the ref's
+`.id`/`.applicationId` rather than identity against `wall.obj`.
 """
 
 from __future__ import annotations
@@ -88,7 +95,7 @@ class TestTier3GetsAWarningLevelAnnotation:
         assert len(ctx.warning_calls) == 1
         call = ctx.warning_calls[0]
         assert call["category"] == "Uniformat — Needs Review (Tier 3)"
-        assert call["objects"] == [wall.obj]
+        assert _ids(call["objects"]) == {"t3-1"}
         assert "Tier 3" in call["message"]
 
     def test_no_tier_3_predictions_means_no_warning_call(self):
