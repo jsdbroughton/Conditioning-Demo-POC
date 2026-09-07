@@ -962,8 +962,17 @@ def _build_full_bundle(
         {w.object_id: w.conditioning for w in walls if w.conditioning}
     )
 
+    duplicates = 0
     for obj in received_model.objects:
         bundle_obj = builder.get_or_add_object(obj.application_id)
+        if bundle_obj.properties_written:
+            # Two received objects sharing one application_id (linked files
+            # can do this). The builder interns by id, so the second would
+            # try to write properties twice — which raises — and then set a
+            # different collection edge, which also raises. First one wins;
+            # count and say so rather than fail the whole publish.
+            duplicates += 1
+            continue
 
         properties = obj.properties.to_nested()
         cond = conditioning_by_id.get(obj.application_id)
@@ -991,6 +1000,12 @@ def _build_full_bundle(
             )
         _copy_object_style(builder, obj, bundle_obj)
 
+    if duplicates:
+        print(
+            f"[ConditioningPOC] {duplicates} received objects shared an "
+            f"application_id with an earlier object and were skipped in "
+            f"'{output_model_name}'."
+        )
     return builder
 
 
