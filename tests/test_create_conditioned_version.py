@@ -512,8 +512,35 @@ class TestFullBundleStampsEveryObject:
         cond = props[DEFAULT_CONDITIONING_KEY]
         assert cond["Status"] == "not conditioned"
         assert cond["Requires Verification"] is False
+        # Doors HAS a rule — so the reason must say the evidence was missing,
+        # not that the category is unknown.
         assert "'Doors'" in cond["Level 4 Code Source"]
-        assert "no derivation rule exists yet" in cond["Level 4 Code Source"]
+        assert "rules exist" in cond["Level 4 Code Source"]
+        assert "category alone is not enough" in cond["Level 4 Code Source"]
+
+    def test_category_without_a_rule_says_so(self, monkeypatch):
+        """A Room says the function has no rule for it — a different gap."""
+        from conditioning.codes import DEFAULT_CONDITIONING_KEY
+
+        room = FakeModelObject(application_id="r1", properties={"category": "Rooms"})
+        builder = _publish_all_bundle(monkeypatch, FakeModel([room]), walls=[])
+        cond = builder.objects["r1"].properties[DEFAULT_CONDITIONING_KEY]
+        assert cond["Status"] == "not conditioned"
+        assert "Not applicable" in cond["Level 4 Code Source"]
+        assert "not physical construction" in cond["Level 4 Code Source"]
+
+    def test_category_with_no_rule_and_physical_says_no_rule(self, monkeypatch):
+        """A Generic Model is physical but unknown — a different message again."""
+        from conditioning.codes import DEFAULT_CONDITIONING_KEY
+
+        gm = FakeModelObject(
+            application_id="g1", properties={"category": "Generic Models"}
+        )
+        builder = _publish_all_bundle(monkeypatch, FakeModel([gm]), walls=[])
+        cond = builder.objects["g1"].properties[DEFAULT_CONDITIONING_KEY]
+        assert "no derivation rule for category 'Generic Models'" in (
+            cond["Level 4 Code Source"]
+        )
 
     def test_category_results_land_on_non_wall_objects_in_the_all_bundle(
         self, monkeypatch,

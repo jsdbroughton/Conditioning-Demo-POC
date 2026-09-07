@@ -27,7 +27,7 @@ from tests.fakes import FakeModel, FakeModelObject
 _TYPE = "Parameters.Type Parameters."
 
 
-def _obj(app_id: str, category: str, **params) -> FakeModelObject:
+def _obj(app_id: str, category: str, host=None, parent=None, **params):
     props = {"category": category}
     for key, value in params.items():
         props[{
@@ -37,7 +37,9 @@ def _obj(app_id: str, category: str, **params) -> FakeModelObject:
             "assembly_code": f"{_TYPE}Identity Data.Assembly Code",
             "type_mark": f"{_TYPE}Identity Data.Type Mark",
         }[key]] = value
-    return FakeModelObject(application_id=app_id, properties=props)
+    return FakeModelObject(
+        application_id=app_id, properties=props, host=host, parent=parent
+    )
 
 
 def _classify(obj, references=()):
@@ -203,3 +205,57 @@ class TestClassifyCategories:
         assert _classify(obj) is None
         named = _classify(_obj("m2", "Mechanical Equipment", type="AHU-1 Air Handler"))
         assert named.code == "D3050.50"
+
+
+class TestRelationsAsSignals:
+    """The wall a door sits in, and the element a part belongs to, are evidence too."""
+
+    def test_host_wall_function_places_a_door_with_no_function_of_its_own(self):
+        """2,563 live doors had no Function; the exterior wall they sit in does."""
+        wall = _obj("w1", "Walls", function="Exterior")
+        door = _obj("d1", "Doors", type="Single Flush", host=wall)
+        result = _classify(door)
+        assert result.code == "B2050.10"
+        assert result.method == "heuristic_host_function"
+        assert result.tier == 2  # weaker than the door's own Function
+        assert "host wall (Exterior)" in result.basis
+
+    def test_own_function_outranks_host_function_and_they_can_conflict(self):
+        """Interior vestibule door in an exterior wall: door wins, confidence drops."""
+        wall = _obj("w1", "Walls", function="Exterior")
+        door = _obj("d1", "Doors", function="Interior", host=wall)
+        result = _classify(door)
+        assert result.code == "C1030.10"
+        assert result.method == "heuristic_function"
+        assert "contradicted by" in result.basis
+
+    def test_agreeing_host_and_own_function_corroborate(self):
+        """Both say exterior → confidence lifted."""
+        wall = _obj("w1", "Walls", function="Exterior")
+        door = _obj("d1", "Doors", function="Exterior", host=wall)
+        result = _classify(door)
+        assert result.code == "B2050.10"
+        assert result.confidence > METHOD_CONFIDENCE["heuristic_function"]
+
+    def test_sub_elements_inherit_a_placed_parent(self):
+        """Railing supports/handrails take the railing's code, tier and all."""
+        railing = _obj("r1", "Railings", type="Guardrail Pipe")
+        support = _obj("s1", "Supports", parent=railing)
+        handrail = _obj("h1", "Handrails", type="Circular", parent=railing)
+        results = classify_categories(
+            FakeModel([railing, support, handrail]), exclude_ids=set()
+        )
+        by_id = {r.object_id: r for r in results}
+        assert by_id["r1"].code == "B1080.50"
+        for child in ("s1", "h1"):
+            assert by_id[child].code == "B1080.50"
+            assert by_id[child].method == "heuristic_parent"
+            assert by_id[child].tier == by_id["r1"].tier
+            assert "parent element (Railings)" in by_id[child].basis
+
+    def test_child_of_an_unplaced_parent_stays_unplaced(self):
+        """Inheritance carries a real result, never a blank."""
+        gm = _obj("g1", "Generic Models", type="Thing")
+        part = _obj("p1", "Supports", parent=gm)
+        results = classify_categories(FakeModel([gm, part]), exclude_ids=set())
+        assert results == []
