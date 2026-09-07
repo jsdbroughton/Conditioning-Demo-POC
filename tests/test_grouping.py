@@ -20,6 +20,8 @@ def _wall(
     function: str = "Interior",
     family: str = "Basic Wall",
     assembly_code: str | None = None,
+    type_mark: str = "",
+    fire_rating: str = "",
 ) -> WallRecord:
     """Build a WallRecord with only the fields grouping reads."""
     return WallRecord(
@@ -29,10 +31,11 @@ def _wall(
         type_name=type_name,
         family=family,
         function=function,
-        type_mark="",
+        type_mark=type_mark,
         width_mm=200.0,
         level="LEVEL 01",
         assembly_code=assembly_code,
+        fire_rating=fire_rating,
     )
 
 
@@ -151,3 +154,134 @@ class TestGroupingDoesNotDisturbClassification:
         """Already-Level4 walls are grouped under their existing code."""
         wall = _wall("a", "Curtain Panel Type 1", assembly_code="B2010.40")
         assert _grouped([wall])["a"].key.startswith("B2010.40 · inferred group ")
+
+
+class TestGroupDescriptionAndRollups:
+    """Description/rollups report what a group's members share, never decide it.
+
+    Added 2026-09-07, following a client ask to relate a group back to Type
+    Mark. Checked against this module's own already-measured real output
+    first: the largest real cluster on record spans six distinct Type
+    Marks, so a group's rollup has to handle "several, not one" as the norm,
+    not an edge case — see grouping.py's 2026-09-07 note.
+    """
+
+    def test_single_shared_wall_tag_is_reported_as_one_value(self):
+        """Single shared wall tag is reported as one value."""
+        walls = [
+            _wall(
+                "a",
+                'Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud',
+                type_mark="H6",
+                fire_rating="SMOKE",
+            ),
+            _wall(
+                "b",
+                'Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud L2',
+                type_mark="H6",
+                fire_rating="SMOKE",
+            ),
+        ]
+        group = _grouped(walls)["a"]
+        assert group.wall_tags == frozenset({"H6"})
+        assert group.fire_ratings == frozenset({"SMOKE"})
+        assert group.stc_values == frozenset({"35"})
+        assert group.stud_sizes == frozenset({"6"})
+        assert "Type Mark H6" in group.description
+        assert "Fire Rating SMOKE" in group.description
+
+    def test_a_group_spanning_several_wall_tags_reports_all_of_them(self):
+        """A group spanning several wall tags reports all of them.
+
+        Mirrors the real Furring cluster (K1/K2/K3/L2/L3/L6, one Level 4
+        code, one similarity group) — different Type Marks whose names are
+        otherwise near-identical still cluster together, and the rollup must
+        say so rather than silently picking one.
+        """
+        walls = [
+            _wall(
+                "a",
+                'Type L3 - Furring - Single Sided GWB - NFR - STC-NA - 3-5/8" Stud',
+                type_mark="L3",
+            ),
+            _wall(
+                "b",
+                'Type L6 - Furring - Single Sided GWB - NFR - STC-NA - 6" Stud',
+                type_mark="L6",
+            ),
+        ]
+        group = _grouped(walls)["a"]
+        assert group.wall_tags == frozenset({"L3", "L6"})
+        assert "Type Mark varies (L3, L6)" in group.description
+
+    def test_fire_rating_can_vary_within_a_group_even_when_tag_does_not(self):
+        """Fire rating can vary within a group even when tag does not.
+
+        This is the exact case grouping.py's "What this cannot do" note
+        warns about — SMOKE vs NFR is a one-token difference a similarity
+        cluster cannot reliably split on. The rollup must surface that span
+        rather than imply the group agrees on a rating it doesn't.
+        """
+        walls = [
+            _wall(
+                "a",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+                fire_rating="",  # blank parameter — falls back to name -> NFR
+            ),
+            _wall(
+                "b",
+                'Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud',
+                type_mark="H6",
+                fire_rating="SMOKE",
+            ),
+        ]
+        group = _grouped(walls)["a"]
+        assert group.wall_tags == frozenset({"H6"})
+        assert group.fire_ratings == frozenset({"NFR", "SMOKE"})
+        assert "Fire Rating varies (NFR, SMOKE)" in group.description
+
+    def test_group_with_nothing_recognised_says_so_plainly(self):
+        """Group with nothing recognised says so plainly."""
+        walls = [
+            _wall("a", "CW_Unitized_IGU-8", function="Curtain"),
+            _wall("b", "CW_Unitized_IGU-2", function="Curtain"),
+        ]
+        group = _grouped(walls)["a"]
+        assert group.wall_tags == frozenset()
+        assert group.fire_ratings == frozenset()
+        assert "no Type Mark, Fire Rating, STC or Stud Size recognised" in (
+            group.description
+        )
+
+    def test_description_leads_with_the_element_count(self):
+        """Description leads with the element count."""
+        walls = [_wall(f"w{i}", "Type H6 - Single Layer GWB - SMOKE") for i in range(3)]
+        assert _grouped(walls)["w0"].description.startswith("3 elements")
+
+    def test_singular_element_count_uses_singular_noun(self):
+        """Singular element count uses singular noun."""
+        wall = _wall("a", "CW_Unitized_Spandrel", function="Curtain")
+        assert _grouped([wall])["a"].description.startswith("1 element —")
+
+    def test_rollups_do_not_affect_which_group_a_wall_joins(self):
+        """Rollups do not affect which group a wall joins.
+
+        Description/rollups are reporting only — grouping.py's 2026-09-07
+        note is explicit that Type Mark/Fire Rating must never become an
+        input to clustering. Two differently-tagged, differently-rated
+        walls whose names are otherwise near-identical still land in one
+        group (the same pairing test_a_group_spanning_several_wall_tags_...
+        and test_fire_rating_can_vary_... use) — proven here by asserting
+        _group_similarity itself never sees a wall_tag/fire_rating argument.
+        """
+        import inspect
+
+        from conditioning.grouping import _group_similarity
+
+        params = list(inspect.signature(_group_similarity).parameters)
+        assert params == ["a", "b"], (
+            "similarity scoring must stay type-name-token-only — adding a "
+            "wall_tag/fire_rating parameter here would make the rollup an "
+            "input to clustering, not just a report on it"
+        )
