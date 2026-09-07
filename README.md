@@ -52,18 +52,32 @@ On every triggered version, the function:
 4. Auto-applies every prediction. Nothing is left untouched or silently
    dropped — a wall with an existing legacy code keeps it recorded as
    `Original Code` alongside the new prediction.
-5. Reads **fire rating, acoustic rating and stud size** off the element type
-   name, where the naming allows it — a type called
+5. Reads **fire rating, wall tag, height, acoustic rating and stud size**
+   for each wall. Fire rating and wall tag prefer the wall's own Revit
+   parameters (`Fire Rating`, `Type Mark` — verified 2026-09-07 against live
+   Turner models) and fall back to the element type name only where the
+   parameter is blank; acoustic rating and stud size still come from the
+   type name (a type called
    `Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud` yields
-   `SMOKE · STC-35 · 6" Stud`. This is the one place the function assumes a
-   naming convention. Where a model doesn't follow one the properties are
-   simply absent rather than guessed, and each run reports its own coverage
-   so you can tell which case you're in. See `attributes.py`.
+   `SMOKE · STC-35 · 6" Stud`). Height is read per-instance from
+   `Unconnected Height` and rounded to the nearest foot, so two walls at
+   3000mm and 3005mm read as one 10' entry while 4500mm reads as 15' — see
+   `attributes.bucket_height_ft`. Where neither a parameter nor the name
+   yields a value, the property is simply absent rather than guessed, and
+   each run reports its own coverage so you can tell which case you're in.
+   See `attributes.py`.
 6. **Groups similar element types** within each Level 4 code, so a code
    covering thousands of walls breaks into recognisable families. This is
    what serves models whose type names carry no convention at all
-   (`CW_Unitized_Spandrel`, `CW1D`, `20d panel`). Groups are our observation,
-   not a classification — see the caveat in "Output" below and `grouping.py`.
+   (`CW_Unitized_Spandrel`, `CW1D`, `20d panel`). Each group also reports a
+   plain-English **description** and, where present, the distinct Type
+   Marks / Fire Ratings / Acoustic STC / Stud Sizes its members actually
+   carry — one value where the group agrees, `varies (...)` listing every
+   value where it doesn't (a real cluster of near-identical type names has
+   been seen spanning six different Type Marks, so "varies" is the norm for
+   a large group, not an edge case). Groups are our observation, not a
+   classification, and Type Mark cannot become a group's *identity* for the
+   same reason — see the caveat in "Output" below and `grouping.py`.
 7. Records, on every element, **whether the model authored the code or the
    function derived it** (`Requires Verification`), and in plain terms
    **what evidence it was derived from** (`Level 4 Code Source`).
@@ -113,17 +127,25 @@ chance of colliding with a real Revit parameter name.
 | `Original Code` | predicted | The prior legacy code, or `null` if the element was blank |
 | `Observed Type Attributes` | where named | e.g. `SMOKE · STC-35 · 6" Stud` |
 | `Observed Fire Rating` / `Observed Acoustic STC` / `Observed Stud Size` | where named | The same three, separately, for filtering |
+| `Observed Fire Rating Source` | where a fire rating is present | `parameter` or `name` — which one it was read from |
+| `Observed Wall Tag` | where the wall has a Type Mark | The wall's own `Type Mark`, e.g. `H6` |
+| `Observed Height` | where the wall has an `Unconnected Height` | Rounded to the nearest foot, e.g. `10'` — a per-instance value, not part of `Observed Type Attributes` |
 | `Inferred Type Group` | all | e.g. `C1010.10 · inferred group A` |
 | `Inferred Group Label` / `Inferred Group Size` | all | What the group's members share, and how many elements |
+| `Inferred Group Description` | all | Plain-English rollup, e.g. `80 elements — Type Mark varies (K1, L3, L6), Fire Rating NFR, ...` |
+| `Inferred Group Wall Tags` / `Fire Ratings` / `Acoustic STC` / `Stud Sizes` | where the group has any | Comma-joined distinct values across the group's members — one value where they agree, several where they don't |
 
 **`Observed` and `Inferred` mean different things, deliberately.**
-*Observed* values are transcribed from the architect's own type name — the
-name says `SMOKE`, so the property says `SMOKE`. *Inferred* values are the
-function's judgement about which elements resemble each other, and that
-judgement is known to be capable of spanning a fire-rating boundary (see
-`grouping.py`). Neither is a client classification, neither carries any
-authority, and the A/B/C letters in a group key are ours — assigned by size,
-and they renumber when the model changes.
+*Observed* values are read from the wall itself — from a real Revit
+parameter where one exists (`Fire Rating`, `Type Mark`; `Observed Fire
+Rating Source` records which), or transcribed from the architect's own
+type name where it doesn't. *Inferred* values are the function's judgement
+about which elements resemble each other, and that judgement is known to be
+capable of spanning a fire-rating or Type Mark boundary (see `grouping.py`)
+— which is exactly what the `Inferred Group *` rollups report rather than
+hide. Neither is a client classification, neither carries any authority,
+and the A/B/C letters in a group key are ours — assigned by size, and they
+renumber when the model changes.
 
 **Nothing here involves a trained model or any AI service.** The function is
 rules over Revit parameters plus a text comparison between elements. No data
@@ -193,8 +215,10 @@ src/conditioning/
                                  plain-English method descriptions
   walls.py                    — WallRecord extraction from Speckle DataObjects, classify_walls()
   predict.py                  — Prediction engine: similarity match + heuristic fallback
-  attributes.py               — Fire rating / STC / stud size read from element type names
-  grouping.py                 — Clusters similar element types within each Level 4 code
+  attributes.py               — Fire rating / wall tag (parameter-first, name fallback) / STC /
+                                 stud size / height bucketing
+  grouping.py                 — Clusters similar element types within each Level 4 code, plus
+                                 each group's description and Type Mark/Fire Rating/etc. rollups
   report.py                   — Markdown conditioning report builder
   speckle_io.py                — Everything that writes back to Speckle (imprint/annotate/version)
   instrumentation.py          — Per-stage timing and peak-RSS logging
