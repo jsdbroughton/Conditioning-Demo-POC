@@ -127,9 +127,9 @@ def _type_group_section(type_groups: dict) -> list[str]:
     exactly what makes them a starting point for mapping onto the client's
     own wall types rather than a substitute for it.
     """
-    by_key: dict[str, tuple[str, int]] = {}
+    by_key: dict[str, tuple[str, int, str]] = {}
     for group in type_groups.values():
-        by_key[group.key] = (group.label, group.size)
+        by_key[group.key] = (group.label, group.size, group.description)
 
     lines = [
         "",
@@ -158,12 +158,19 @@ def _type_group_section(type_groups: dict) -> list[str]:
         "as \"these types are equivalent\". Grouping by rating, STC or stud "
         "size needs the estimating vocabulary, which is a separate input.",
         "",
-        "| Group | Label | Elements |",
-        "|-------|-------|----------|",
+        "**Description** (added 2026-09-07) answers exactly that span question "
+        "for Type Mark, Fire Rating, Acoustic STC and Stud Size, per group — "
+        "one value where every member agrees, `varies (...)` listing all of "
+        "them where they don't. It reports what a group's members turned out "
+        "to have in common; it is never an input to how the group was formed "
+        "(that's still name similarity alone, above).",
+        "",
+        "| Group | Label | Elements | Description |",
+        "|-------|-------|----------|-------------|",
     ]
     for key in sorted(by_key, key=lambda k: (k.split(" · ")[0], -by_key[k][1], k)):
-        label, size = by_key[key]
-        lines.append(f"| `{key}` | {label} | {size} |")
+        label, size, description = by_key[key]
+        lines.append(f"| `{key}` | {label} | {size} | {description or '—'} |")
     return lines
 
 
