@@ -444,7 +444,7 @@ def classify_element(
 ) -> CategoryResult | None:
     """Derive one non-wall object's code; None when nothing can place it."""
     rule = CATEGORY_RULES.get(element.category)
-    if rule is None:
+    if rule is None or is_non_physical_name(element.type_name, element.family):
         return None
 
     if element.is_level4_coded:
@@ -511,51 +511,59 @@ def classify_categories(
     vouch for a Door.
     """
     elements: list[ElementRecord] = []
+    parent_categories: dict[str, str] = {}
     for obj in model.objects:
-        if obj.application_id in exclude_ids:
-            continue
         element = read_element(obj)
         if element is None:
             continue
+        if obj.application_id in exclude_ids:
+            parent_categories[element.object_id] = element.category  # a wall
+            continue
         if element.category in CATEGORY_RULES or element.parent_id:
             elements.append(element)
+        else:
+            # Not classified, but a component may name it as its parent.
+            parent_categories[element.object_id] = element.category
 
     references: dict[str, list[ElementRecord]] = {}
     for element in elements:
         if element.is_level4_coded:
             references.setdefault(element.category, []).append(element)
 
+    # SUBELEMENTs — railing supports/handrails/top rails under a railing,
+    # stair runs under a stair, a nested door family under its door — are
+    # COMPONENTS of the parent, priced with it, never counted on their own.
+    # A first version inherited the parent's code onto them; on the live
+    # Core model that put C1030.10 on a nested `QA_Door-ADAclearance` family
+    # and would have doubled every door count. Components get no Level 4
+    # Code of their own; the parent's code is recorded separately for
+    # traceability (see speckle_io.imprint_category_results).
+    components = [e for e in elements if e.parent_id]
     results: list[CategoryResult] = []
-    unplaced: list[ElementRecord] = []
     for element in elements:
+        if element.parent_id:
+            continue
         result = classify_element(
             element, references.get(element.category, []), threshold
         )
         if result is not None:
             results.append(result)
-        else:
-            unplaced.append(element)
 
-    # Second pass — inheritance from a placed parent. Railing supports,
-    # handrails and top rails are SUBELEMENTs of a railing; a curtain-wall
-    # panel of its curtain system. They have no rule of their own and
-    # shouldn't: they are priced as part of the parent. 2,183 such elements
-    # on the live Core model sat unplaced next to their coded parent. The
-    # parent's code, confidence and tier carry over, with the source saying
-    # so — an inherited code is exactly as trustworthy as the one it came
-    # from, no more.
     by_id = {r.object_id: r for r in results}
-    for element in unplaced:
-        parent = by_id.get(element.parent_id) if element.parent_id else None
-        if parent is None:
-            continue
+    parent_category = {
+        **parent_categories, **{e.object_id: e.category for e in elements}
+    }
+    for element in components:
+        parent = by_id.get(element.parent_id)
         results.append(CategoryResult(
             object_id=element.object_id, category=element.category,
-            code=parent.code, confidence=parent.confidence, tier=parent.tier,
-            method="heuristic_parent",
+            code=parent.code if parent else "",
+            confidence=parent.confidence if parent else 0.0,
+            tier=parent.tier if parent else 0,
+            method="component",
             basis=(
-                f"its parent element ({parent.category}), which was placed "
-                f"from {parent.basis}"
+                f"a component of its parent element "
+                f"({parent_category.get(element.parent_id, 'unknown category')})"
             ),
             original_code=element.assembly_code,
         ))
