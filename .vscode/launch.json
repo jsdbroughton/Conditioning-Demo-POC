@@ -12,6 +12,9 @@
       "console": "integratedTerminal",
       "justMyCode": true,
       "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
       "args": ["run", "function_inputs.json"]
     }
   ]
