@@ -769,7 +769,7 @@ name = "speckle-automate-function"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "specklepy" },
+    { name = "specklepy", extra = ["bundle"] },
 ]
 
 [package.optional-dependencies]
@@ -788,16 +788,15 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.1" },
     { name = "python-dotenv", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.6" },
-    { name = "specklepy", specifier = "==2026.8.1" },
+    { name = "specklepy", extras = ["bundle"], specifier = "==2026.9.0b3" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "specklepy"
-version = "2026.8.1"
+version = "2026.9.0b3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "appdirs" },
     { name = "attrs" },
     { name = "deprecated" },
     { name = "gql", extra = ["requests", "websockets"] },
