@@ -99,6 +99,55 @@ can't be collapsed into one number. Worth showing side by side: the tier,
 and the fact that this wall's own name gave the tool nothing to go on at
 all.
 
+**The wrong-code regression, caught live on a demo call.** A fresh internal
+port of this function to Speckle's newer data format shipped with a subtle
+bug: every Revit parameter read used a slightly wrong lookup path, one
+level short of what the real export actually uses. The result looked
+plausible rather than obviously broken — nearly every wall in a fitout
+model landed on an *exterior*-wall code, when a fitout is almost entirely
+interior partitions. It read as a believable classification right up until
+someone who knew the building looked at the numbers and said that's not
+right. Confirmed and fixed the same day by pulling the exact property
+paths off the live model rather than guessing, and re-run to confirm
+interior walls now land on the interior code family as expected. The
+lesson worth keeping in front of anyone extending this: a classification
+tool that fails by producing a wrong-but-plausible answer, instead of an
+obviously missing one, needs a person who knows the domain checking its
+output after every change that looks routine — its own quiet confidence is
+not evidence it's right.
+
+**The costing test.** An early version of wall-type grouping described its
+own "varies" honestly — a hundred-element group might report "Fire Ratings:
+NFR, SMOKE" rather than picking one and hiding the rest. Truthful, but not
+what the estimators asked for on the call: two walls with different fire
+ratings cost differently, so a group spanning both fire ratings still can't
+be priced as one line. Fixed by splitting fire rating and acoustic (STC)
+rating out *before* similarity clustering runs, so those two attributes
+can no longer vary inside that group — by construction, not by coincidence.
+
+**The "is height really just a bigger number" test.** Height looked at
+first like a pure quantity question — a taller wall has more square
+footage, and the takeoff already prices that without touching
+classification. Pushed on directly: no, height can be a genuine cost
+*category*, not just a bigger quantity — taller interior stud walls
+commonly need a heavier stud gauge or added bracing past a real
+threshold, the same shape of problem fire rating and acoustic rating
+already were. No client call was available to confirm exactly where that
+threshold sits for this contractor, so it was picked deliberately rather
+than left out: short under 4', standard up to roughly 20', tall above
+that, flagged everywhere as an assumption to correct once the real
+numbers are known, not a measured fact.
+
+Once fire rating, acoustics *and* height all mattered, a single flat split
+would have made every group finer whether or not a given family actually
+needed it. So grouping became three views instead of one: a coarse read
+(does this look like the same wall at all), a cost read (does it also
+agree on fire rating and acoustics), and a full read (does it also agree
+on height). A family that's already uniform on the finer questions shows
+up once, at the coarse level — nothing manufactures a difference that
+isn't there, and a reader can pick whichever question they're actually
+asking.
+
 ## How to see this yourself, in the Speckle app
 
 1. Open the client's project and pick any one of the three source models.

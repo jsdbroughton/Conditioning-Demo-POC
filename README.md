@@ -146,15 +146,54 @@ On every triggered version, the function:
 ### Output
 
 A single namespaced property (default key `Conditioned UF Code` — see "Using
-this function" below) written onto every wall object in a new version pushed
-to `Conditioned/<source model name>`. Everything goes in that one dict:
-one place to look in the viewer, one thing to select in Power BI, and no
-chance of colliding with a real Revit parameter name.
+this function" below) written onto every wall object. Everything goes in
+that one dict: one place to look in the viewer, one thing to select in Power
+BI, and no chance of colliding with a real Revit parameter name.
+
+That property lands in **two** new versions per run, published from the same
+`create_conditioned_version()` call (2026-09-07, later still) — check either
+independently, since one can publish without the other:
+
+- **`Conditioned/Walls/<source model name>`** — every conditioned wall and curtain-wall/
+  curtain-panel element, nothing else. Smaller and faster to open when the
+  only question is what conditioning did to the walls.
+- **`Conditioned/All/<source model name>`** — a genuine like-for-like republish of the
+  *entire* received scene (doors, floors, rooms, MEP, stairs, everything),
+  with each conditioned wall's result patched onto its own properties and
+  the original collection hierarchy, level, material and color carried over.
+  This is the one that looks like the source model, not a walls-only subset
+  of it — added because the walls-only model, for a while the only output,
+  read as data loss to a reviewer opening it directly rather than through
+  the run report's merged viewer. Geometry is copied structurally
+  (definitions and placements rebuilt, not flattened — the first cut put
+  every instanced door/panel/equipment item at the origin). Every object
+  the function did *not* classify carries the same namespaced property
+  with either a derived code or `Status: not conditioned` — so nothing in
+  this model is silently blank. Non-wall objects are coded by the
+  **category engine** (`categories.py`): the wall engine's own mechanism —
+  every independent signal collected (Revit category, `Function`, a
+  type-name keyword, the section of any existing Assembly Code, and the
+  nearest already-coded neighbour of the same category), strongest decides,
+  agreement lifts confidence and contradiction lowers it, same constants —
+  applied to a per-category rule table. **That table is a set of judgements
+  made without the estimator** (same status as the height bands); every
+  result carries `Requires Verification: True` and a plain-English source,
+  and the report says so up front. Categories with no rule, or where no
+  signal fires (Rooms, Generic Models, unrecognised Mechanical Equipment, a
+  Door with no Function and no telling name), stay `not conditioned` rather
+  than guessed. Codes come from `acme_reference.py` — the client's full
+  structure, 679 codes generated from the fixture spreadsheet. Host/room/connection/assembly
+  relationships are not carried over (see `_build_full_bundle()`'s
+  docstring in `speckle_io.py`).
+
+The run report's "View Results" viewer loads both, overlaid on the host
+model, via `set_context_view`.
 
 | Key | On | Meaning |
 |-----|-----|---------|
-| `Status` | all | `existing` (model already had a valid code) or `predicted` |
+| `Status` | all | `existing` (model already had a valid code), `predicted`, or — on non-wall objects in `Conditioned/All/…` that no rule could place — `not conditioned` |
 | `Level 4 Code` | all | The code the element ends up carrying |
+| `Level 4 Code Description` | all | ACME's own description text for that code, straight from the Estimate Detail Structure (e.g. `Exterior Wall Veneer`) |
 | `Level 4 Code Source` | all | Plain English: authored by the model, or derived by the function and from what evidence |
 | `Requires Verification` | all | `False` only where the model authored a valid code — today `True` on everything |
 | `Tier` | all | Tier 0–3, see above |
