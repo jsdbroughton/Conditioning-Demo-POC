@@ -6,58 +6,61 @@ is a Type Parameter (same group as Type Mark, under Identity Data) and
 Unconnected Height is an Instance Parameter (a different top-level group
 entirely) — this file exists to pin that distinction in code, since getting
 it wrong would silently read the wrong branch of the properties tree.
+
+2026-09-07 (later the same day): rewritten again after discovering the SDK's
+instance→type precedence search only helps when both scopes store a
+parameter under the SAME literal path string — it does not strip or infer a
+"Instance Parameters."/"Type Parameters." segment on the caller's behalf.
+This connector's real paths are "Parameters.Instance Parameters.<Group>.
+<Param>" and "Parameters.Type Parameters.<Group>.<Param>", confirmed live
+against the Fitout Tower model (see walls.py's module docstring's 2026-09-07
+correction) — Fire Rating and Type Mark are Type Parameters, Unconnected
+Height is an Instance Parameter. get_wall_metadata() now calls walls._param()/
+_param_double(), which try both scopes explicitly. What these tests still
+pin: Fire Rating/Type Mark come from the TYPE scope's Identity Data group,
+Unconnected Height from the INSTANCE scope's Constraints group — get either
+the scope or the group wrong and you're silently reading nothing or the
+wrong field.
 """
 
 from __future__ import annotations
 
 from conditioning.walls import get_wall_metadata
+from tests.fakes import FakeLevel, FakeModelObject
+
+_TYPE_ID = "Parameters.Type Parameters.Identity Data"
+_INSTANCE_CONSTRAINTS = "Parameters.Instance Parameters.Constraints"
 
 
-class _FakeWallObj:
-    """Minimal stand-in for a Speckle DataObject with both parameter groups.
-
-    Identity Data (Fire Rating, Type Mark) lives under Type Parameters;
-    Unconnected Height lives under the sibling Instance Parameters group —
-    matching the live model structure, not the Type-Parameters-only shape
-    test_get_assembly_code.py's fake object uses.
-    """
-
-    def __init__(
-        self,
-        fire_rating_value=None,
-        unconnected_height_value=None,
-        type_mark_value=None,
-        type_="",
-        family="",
-        level="",
-    ):
-        self.type = type_
-        self.family = family
-        self.level = level
-        self.properties = {
-            "Parameters": {
-                "Type Parameters": {
-                    "Identity Data": {
-                        "Type Mark": {"value": type_mark_value},
-                        "Fire Rating": {"value": fire_rating_value},
-                    },
-                    "Construction": {},
-                },
-                "Instance Parameters": {
-                    "Constraints": {
-                        "Unconnected Height": {"value": unconnected_height_value},
-                    },
-                },
-            }
-        }
+def _wall_obj(
+    fire_rating_value=None,
+    unconnected_height_value=None,
+    type_mark_value=None,
+    type_="",
+    family="",
+    level_name="",
+) -> FakeModelObject:
+    properties = {"type": type_, "family": family}
+    if type_mark_value is not None:
+        properties[f"{_TYPE_ID}.Type Mark"] = type_mark_value
+    if fire_rating_value is not None:
+        properties[f"{_TYPE_ID}.Fire Rating"] = fire_rating_value
+    if unconnected_height_value is not None:
+        properties[f"{_INSTANCE_CONSTRAINTS}.Unconnected Height"] = (
+            unconnected_height_value
+        )
+    return FakeModelObject(
+        properties=properties,
+        level=FakeLevel(level_name) if level_name else None,
+    )
 
 
 class TestFireRatingExtraction:
-    """Fire Rating is read from Type Parameters > Identity Data, like Type Mark."""
+    """Fire Rating is read from the Identity Data group, like Type Mark."""
 
     def test_populated_fire_rating_is_read(self):
         """Populated fire rating is read."""
-        meta = get_wall_metadata(_FakeWallObj(fire_rating_value="1HR/S"))
+        meta = get_wall_metadata(_wall_obj(fire_rating_value="1HR/S"))
         assert meta["fire_rating"] == "1HR/S"
 
     def test_blank_fire_rating_is_empty_string_not_none(self):
@@ -67,8 +70,8 @@ class TestFireRatingExtraction:
         type_mark) — "" throughout, never None, so callers never have to
         branch on type before checking truthiness.
         """
-        assert get_wall_metadata(_FakeWallObj())["fire_rating"] == ""
-        blank = _FakeWallObj(fire_rating_value="")
+        assert get_wall_metadata(_wall_obj())["fire_rating"] == ""
+        blank = _wall_obj(fire_rating_value="")
         assert get_wall_metadata(blank)["fire_rating"] == ""
 
     def test_dash_value_is_read_verbatim_not_interpreted_here(self):
@@ -78,37 +81,43 @@ class TestFireRatingExtraction:
         means "no rating" is attributes.py's job
         (_normalize_fire_rating_param), not this one's.
         """
-        dashed = _FakeWallObj(fire_rating_value="-")
+        dashed = _wall_obj(fire_rating_value="-")
         assert get_wall_metadata(dashed)["fire_rating"] == "-"
 
 
 class TestUnconnectedHeightExtraction:
-    """Height is read from Instance Parameters > Constraints, unlike other fields."""
+    """Height is read from the Constraints group, unlike Fire Rating/Type Mark."""
 
     def test_height_is_converted_feet_to_mm(self):
         """Height is converted feet to mm."""
-        meta = get_wall_metadata(_FakeWallObj(unconnected_height_value=10.0))
+        meta = get_wall_metadata(_wall_obj(unconnected_height_value=10.0))
         assert meta["height_mm"] == 3048.0
 
     def test_missing_height_defaults_to_zero(self):
         """Missing height defaults to zero."""
-        assert get_wall_metadata(_FakeWallObj())["height_mm"] == 0.0
+        assert get_wall_metadata(_wall_obj())["height_mm"] == 0.0
 
     def test_non_numeric_height_defaults_to_zero_rather_than_raising(self):
-        """Non numeric height defaults to zero rather than raising."""
-        meta = get_wall_metadata(_FakeWallObj(unconnected_height_value="N/A"))
-        assert meta["height_mm"] == 0.0
+        """Non numeric height defaults to zero rather than raising.
 
-    def test_height_does_not_read_from_type_parameters(self):
-        """Height does not read from type parameters.
-
-        A Width-shaped Instance Parameters block with nothing under
-        Constraints must not accidentally fall back to a Type Parameters
-        value — the two groups are genuinely different Revit parameter
-        classes and this pins that they're never conflated.
+        get_double() on a real ModelObject already returns None for a
+        non-numeric value at that path (it's a typed column lookup, not a
+        string cast) — this pins that get_wall_metadata() still tolerates a
+        None from get_double() rather than assuming a float.
         """
-        obj = _FakeWallObj(unconnected_height_value=None)
-        obj.properties["Parameters"]["Type Parameters"]["Constraints"] = {
-            "Unconnected Height": {"value": 99.0}
-        }
+        obj = _wall_obj()
+        obj.get_double = lambda path: None  # simulate a non-numeric/blank column
         assert get_wall_metadata(obj)["height_mm"] == 0.0
+
+
+class TestLevelExtraction:
+    """Level is the ON_LEVEL relation now, not a property — see module docstring."""
+
+    def test_level_name_is_read_from_the_relation(self):
+        """Level name is read from the relation."""
+        meta = get_wall_metadata(_wall_obj(level_name="LEVEL 01"))
+        assert meta["level"] == "LEVEL 01"
+
+    def test_missing_level_defaults_to_empty_string(self):
+        """Missing level defaults to empty string."""
+        assert get_wall_metadata(_wall_obj())["level"] == ""
