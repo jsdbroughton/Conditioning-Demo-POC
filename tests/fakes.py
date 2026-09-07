@@ -121,6 +121,8 @@ class FakeModelObject:
         collection_path: list[str] | None = None,
         material: FakeMaterial | None = None,
         color: FakeColor | None = None,
+        host: FakeModelObject | None = None,
+        parent: FakeModelObject | None = None,
     ) -> None:
         """Set the fields conditioning.walls/speckle_io read off a wall object."""
         self.application_id = application_id
@@ -131,6 +133,8 @@ class FakeModelObject:
         self.collection_path = collection_path or []
         self.material = material
         self.color = color
+        self.host = host      # HOSTED_IN relation — the wall a door sits in
+        self.parent = parent  # SUBELEMENT relation — the element this belongs to
         self.k: int | None = None  # assigned by FakeModel, matching ModelObject.k
 
     def get_string(self, path: str) -> str | None:
