@@ -76,17 +76,44 @@ On every triggered version, the function:
    each run reports its own coverage so you can tell which case you're in.
    See `attributes.py`.
 6. **Groups similar element types** within each Level 4 code, so a code
-   covering thousands of walls breaks into recognisable families. This is
-   what serves models whose type names carry no convention at all
-   (`CW_Unitized_Spandrel`, `CW1D`, `20d panel`). Each group also reports a
-   plain-English **description** and, where present, the distinct Type
-   Marks / Fire Ratings / Acoustic STC / Stud Sizes its members actually
-   carry — one value where the group agrees, `varies (...)` listing every
-   value where it doesn't (a real cluster of near-identical type names has
-   been seen spanning six different Type Marks, so "varies" is the norm for
-   a large group, not an edge case). Groups are our observation, not a
-   classification, and Type Mark cannot become a group's *identity* for the
-   same reason — see the caveat in "Output" below and `grouping.py`.
+   covering thousands of walls breaks into recognisable families — at
+   **three granularities**, not one, because a group can honestly be more
+   or less coarse depending on the question being asked:
+   - **Coarse** — pure type-name similarity, deliberately blind to fire
+     rating, acoustic rating and height. Answers "which architect types
+     basically resemble each other at all." Can span a fire-rating or
+     acoustic boundary — see "What this cannot do" below — which is exactly
+     why the finer tiers exist rather than a reason to drop this one.
+   - **Fire/Acoustic** — each coarse cluster re-partitioned by (Fire
+     Rating, Acoustic STC), because the estimators who cost these groups
+     need those two to come out as different costs, and name-similarity
+     alone cannot guarantee that.
+   - **Full** — each Fire/Acoustic slice re-partitioned again by a
+     **height band** (short: under 4'; standard: 4' up to 6m/~19'8"; tall:
+     over 6m). This is an **opinionated, unvalidated-against-Turner's-own-
+     pricing** stand-in for where an interior stud wall typically needs a
+     heavier gauge or added bracing — picked to unblock delivery without a
+     follow-up call, not measured against this client's numbers. Correct
+     `attributes.HEIGHT_BAND_SHORT_MAX_MM`/`HEIGHT_BAND_TALL_MIN_MM` the
+     moment real thresholds are known.
+
+   A finer tier only grows a row distinct from its parent where that tier's
+   split actually found more than one value — a coarse cluster already
+   uniform on fire/acoustic/height never gains a meaningless sub-row, so a
+   wall's key stays as coarse as it honestly can. Within any tier,
+   remaining type-name variation is still what serves models whose naming
+   carries no other convention at all (`CW_Unitized_Spandrel`, `CW1D`,
+   `20d panel`). Every row also reports a plain-English **description**
+   and, where present, the distinct Type Marks / Stud Sizes its members
+   carry — one value where the row's members agree, `varies (...)` listing
+   every value where they don't (a real cluster of near-identical type
+   names has been seen spanning six different Type Marks, so "varies" is
+   the norm for Type Mark/Stud Size on a large group, not an edge case —
+   Fire Rating, Acoustic STC and Height Band, by contrast, are guaranteed
+   uniform on a **Full**-tier row by construction; "varies" on any of those
+   three can only appear on a coarser row). Groups are our observation, not
+   a classification, and Type Mark cannot become a group's *identity* for
+   the same reason — see the caveat in "Output" below and `grouping.py`.
 7. Records, on every element, **whether the model authored the code or the
    function derived it** (`Requires Verification`), and in plain terms
    **what evidence it was derived from** (`Level 4 Code Source`).
@@ -139,22 +166,30 @@ chance of colliding with a real Revit parameter name.
 | `Observed Fire Rating Source` | where a fire rating is present | `parameter` or `name` — which one it was read from |
 | `Observed Wall Tag` | where the wall has a Type Mark | The wall's own `Type Mark`, e.g. `H6` |
 | `Observed Height` | where the wall has an `Unconnected Height` | Rounded to the nearest foot, e.g. `10'` — a per-instance value, not part of `Observed Type Attributes` |
-| `Inferred Type Group` | all | e.g. `C1010.10 · inferred group A` |
-| `Inferred Group Label` / `Inferred Group Size` | all | What the group's members share, and how many elements |
-| `Inferred Group Description` | all | Plain-English rollup, e.g. `80 elements — Type Mark varies (K1, L3, L6), Fire Rating NFR, ...` |
-| `Inferred Group Wall Tags` / `Fire Ratings` / `Acoustic STC` / `Stud Sizes` | where the group has any | Comma-joined distinct values across the group's members — one value where they agree, several where they don't |
+| `Observed Height Band` | where the wall has an `Unconnected Height` | `short (<4')`, `standard`, or `tall (>6m)` — the same height read as the band the `Full`-tier group hard-splits on, see `attributes.height_band` |
+| `Inferred Type Group` | all | The **Full**-tier group — the most specific of the three, e.g. `C1010.10 · inferred group A2a`. This is the group actually guaranteed never to mix two differently fire-rated, differently-acoustic-rated or differently-heighted walls |
+| `Inferred Group Label` / `Inferred Group Size` | all | What the Full-tier group's members share, and how many elements |
+| `Inferred Type Group (Coarse)` / `Inferred Group Label (Coarse)` | all | The same wall's **Coarse**-tier group — pure name similarity, e.g. `C1010.10 · inferred group A` — for rolling up to "which architect types basically resemble each other" regardless of fire/acoustic/height |
+| `Inferred Type Group (Fire/Acoustic)` / `Inferred Group Label (Fire/Acoustic)` | all | The same wall's **Fire/Acoustic**-tier group, e.g. `C1010.10 · inferred group A2` — Coarse re-split by (Fire Rating, Acoustic STC) only, before height |
+| `Inferred Group Description` | all | Plain-English rollup for the Full-tier group, e.g. `5 elements — Type Mark H6, Fire Rating SMOKE, Acoustic STC 35, Stud Size 6, Height Band standard` |
+| `Inferred Group Wall Tags` / `Fire Ratings` / `Acoustic STC` / `Stud Sizes` / `Height Bands` | where the group has any | Comma-joined distinct values across the Full-tier group's members. Wall Tags and Stud Sizes can list several values where members don't agree; Fire Ratings, Acoustic STC and Height Bands are hard-split (2026-09-07 and 2026-09-07 later still), so each of those three always reports exactly one value at this tier — "varies" on any of them is only possible reading the Coarse or Fire/Acoustic keys instead |
 
 **`Observed` and `Inferred` mean different things, deliberately.**
 *Observed* values are read from the wall itself — from a real Revit
 parameter where one exists (`Fire Rating`, `Type Mark`; `Observed Fire
 Rating Source` records which), or transcribed from the architect's own
 type name where it doesn't. *Inferred* values are the function's judgement
-about which elements resemble each other, and that judgement is known to be
-capable of spanning a fire-rating or Type Mark boundary (see `grouping.py`)
-— which is exactly what the `Inferred Group *` rollups report rather than
-hide. Neither is a client classification, neither carries any authority,
-and the A/B/C letters in a group key are ours — assigned by size, and they
-renumber when the model changes.
+about which elements resemble each other, at whichever of the three
+granularities you read — `Inferred Type Group (Coarse)` is judgement that
+can span a Fire Rating, Acoustic STC, Height Band, Type Mark or Stud Size
+boundary all at once (it's blind to all five); `(Fire/Acoustic)` still
+spans Type Mark, Stud Size and Height Band but never Fire Rating/Acoustic
+STC; the default `Inferred Type Group` (Full) never spans any of Fire
+Rating, Acoustic STC or Height Band, only Type Mark/Stud Size — which is
+exactly what its `Inferred Group *` rollups report ("varies (...)") rather
+than hide. Neither `Observed` nor `Inferred` is a client classification,
+neither carries any authority, and the letters/digits in a group key are
+ours — assigned by size, and they renumber when the model changes.
 
 **Nothing here involves a trained model or any AI service.** The function is
 rules over Revit parameters plus a text comparison between elements. No data
