@@ -54,7 +54,7 @@ from specklepy.bundle.model import GeometryRole
 from specklepy.bundle.send import SendOptions
 
 from conditioning.attributes import bucket_height_ft, extract_attributes, height_band
-from conditioning.categories import CategoryResult
+from conditioning.categories import CATEGORY_RULES, CategoryResult, is_non_physical
 from conditioning.codes import (
     ACME_CODES,
     DEFAULT_CONDITIONING_KEY,
@@ -245,19 +245,22 @@ def _add_type_group(
             # 2026-09-07 (later still): grouping is now a three-tier
             # hierarchy, not one flat split (see grouping.py) — `group` here
             # is always the `full`-tier TypeGroup (fire/acoustic/height all
-            # split), which is what "Inferred Type Group" has always meant
-            # and stays meaning, so nothing already built against that key
-            # breaks. The coarser tiers' keys/labels are added alongside it
-            # rather than replacing it, so a wall can be grouped by whichever
+            # split). Every tier's key/label is written side by side, each
+            # suffixed with its tier, so a wall can be grouped by whichever
             # granularity a reader wants directly off its own properties —
-            # no join to a separate clusters table needed. Coarse/Fire-
-            # Acoustic keys equal the full key wherever that tier's split
-            # never actually found more than one value (see TypeGroup's
-            # docstring) — that's correct, not a bug: it says plainly that
-            # finer splitting found nothing more to say.
+            # no join to a separate clusters table needed. The full tier
+            # was briefly the unsuffixed "Inferred Type Group"; renamed
+            # "(Fine Grained)" the same day on review of a real property
+            # panel, where an unsuffixed key beside "(Coarse)" and
+            # "(Fire/Acoustic)" read as the parent of the other two rather
+            # than the finest of the three. Coarse/Fire-Acoustic keys equal
+            # the fine-grained key wherever that tier's split never actually
+            # found more than one value (see TypeGroup's docstring) — that's
+            # correct, not a bug: it says plainly that finer splitting found
+            # nothing more to say.
             entry = {
-                "Inferred Type Group": group.key,
-                "Inferred Group Label": group.label,
+                "Inferred Type Group (Fine Grained)": group.key,
+                "Inferred Group Label (Fine Grained)": group.label,
                 "Inferred Group Size": group.size,
                 "Inferred Type Group (Coarse)": group.coarse_key,
                 "Inferred Group Label (Coarse)": group.coarse_label,
