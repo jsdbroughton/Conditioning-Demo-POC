@@ -1205,26 +1205,26 @@ def create_conditioned_version(
     walls_model_name = f"Conditioned/Walls/{source_model_name}"
     all_model_name = f"Conditioned/All/{source_model_name}"
 
-    walls_published = _publish_bundle(
+    walls_published, walls_error = _publish_bundle(
         automate_context,
         walls_model_name,
         model_description=(
             f"Walls and curtain-wall elements with predicted Uniformat "
             f"Assembly Codes for '{source_model_name}' — Conditioning Demo POC"
         ),
-        builder=_build_walls_bundle(received_model, walls, walls_model_name),
+        build=lambda: _build_walls_bundle(received_model, walls, walls_model_name),
         send_message=(
             "Uniformat Assembly Code predictions applied by Conditioning Demo POC"
         ),
     )
-    all_published = _publish_bundle(
+    all_published, all_error = _publish_bundle(
         automate_context,
         all_model_name,
         model_description=(
             f"Full republish of '{source_model_name}' with predicted Uniformat "
             f"Assembly Codes patched onto its walls — Conditioning Demo POC"
         ),
-        builder=_build_full_bundle(
+        build=lambda: _build_full_bundle(
             received_model, walls, all_model_name, code_property_name,
             category_conditioning=category_conditioning,
         ),
@@ -1268,4 +1268,6 @@ def create_conditioned_version(
         walls_version_id=walls_published[1] if walls_published else None,
         all_model_name=all_model_name,
         all_version_id=all_published[1] if all_published else None,
+        walls_error=walls_error,
+        all_error=all_error,
     )
