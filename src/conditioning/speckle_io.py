@@ -43,7 +43,9 @@ ConditionedVersions for the return shape.
 
 from __future__ import annotations
 
+import traceback
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from speckle_automate import AutomationContext
@@ -364,6 +366,23 @@ def imprint_category_results(
     """
     imprinted: dict[str, dict] = {}
     for result in results:
+        if result.method == "component":
+            # No Level 4 Code key at all — a count of coded elements must not
+            # see this one. The parent's code rides along under its own name
+            # so the relationship is visible without inflating anything.
+            entry = {
+                "Status": "component",
+                "Level 4 Code Source": (
+                    f"Not classified separately — {result.basis}; priced and "
+                    f"counted with the parent, not on its own"
+                ),
+                "Requires Verification": False,
+            }
+            if result.code:
+                entry["Parent Level 4 Code"] = result.code
+                entry["Parent Level 4 Code Description"] = result.description
+            imprinted[result.object_id] = {code_property_name: entry}
+            continue
         if result.method == "existing":
             entry = {
                 "Status": "existing",
