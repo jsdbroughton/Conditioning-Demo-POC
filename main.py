@@ -148,77 +148,127 @@ def automate_function(
     # pod exit code and nothing to attribute it to — see
     # conditioning/instrumentation.py.
 
-    # 1. Receive and traverse
-    with stage("receive_version"):
-        root = automate_context.receive_version()
+    # 1. Receive via operations.receive3, not automate_context.receive_version()
+    # — see this module's docstring for why. `model` owns the downloaded
+    # bundle files (parquet + SGEO blobs) until closed, and geometry is
+    # parsed from those files lazily on first access (Model.geometries /
+    # ModelGeometry.decode()) — so everything that might touch a wall's
+    # geometry, including the fresh bundle create_conditioned_version()
+    # builds from the *original* wall geometry, has to happen inside this
+    # `with` block. Closing early and touching geometry afterwards raises.
+    trigger = automate_context.automation_run_data.triggers[0].payload
+    with stage("receive_version"), operations.receive3(
+        automate_context.speckle_client.account,
+        automate_context.automation_run_data.project_id,
+        trigger.model_id,
+        trigger.version_id,
+    ) as model:
+        with stage("collect_walls"):
+            walls = collect_walls(model)
 
-    with stage("collect_walls"):
-        walls = collect_walls(root)
+        if not walls:
+            automate_context.mark_run_success(
+                "No wall elements found in this version — nothing to condition."
+            )
+            return
 
-    if not walls:
-        automate_context.mark_run_success(
-            "No wall elements found in this version — nothing to condition."
-        )
-        return
-
-    classification = classify_walls(walls)
-    print(
-        f"[ConditioningPOC] "
-        f"{len(classification.coded)} with any code "
-        f"({len(classification.level4)} Level 4, "
-        f"{len(classification.non_level4_coded)} other format), "
-        f"{len(classification.uncoded)} uncoded."
-    )
-
-    # 2. Predict codes for uncoded walls (threshold defaults to
-    # codes.SIMILARITY_MATCH_THRESHOLD — no longer a user input, see
-    # FunctionInputs docstring above)
-    with stage("predict_codes"):
-        predictions = predict_codes(walls)
-
-    # 2b. Sub-group wall types within each predicted code. A Level 4 code on
-    # its own answers "what kind of element" and immediately raises "yes, but
-    # which one" — a 6" smoke partition and a furring wall are both
-    # C1010.10 and cost nothing like each other. See conditioning/grouping.py.
-    with stage("assign_type_groups"):
-        type_groups = assign_type_groups(walls, predictions)
+        classification = classify_walls(walls)
         print(
-            f"[ConditioningPOC] {len(set(g.key for g in type_groups.values()))} "
-            f"wall-type groups across {len(walls)} elements."
+            f"[ConditioningPOC] "
+            f"{len(classification.coded)} with any code "
+            f"({len(classification.level4)} Level 4, "
+            f"{len(classification.non_level4_coded)} other format), "
+            f"{len(classification.uncoded)} uncoded."
         )
 
-    # 3. Per-object viewer annotations
-    with stage("attach_viewer_annotations"):
-        attach_viewer_annotations(
-            automate_context,
-            classification.level4,
-            classification.non_level4_coded,
-            predictions,
-        )
+        # 2. Predict codes for uncoded walls (threshold defaults to
+        # codes.SIMILARITY_MATCH_THRESHOLD — no longer a user input, see
+        # FunctionInputs docstring above)
+        with stage("predict_codes"):
+            predictions = predict_codes(walls)
 
-    # 4. Conditioning report. Deliberately not bound to a local: the report
-    # is the largest single string this function builds, and holding it
-    # alive through create_conditioned_version() below — the peak-memory
-    # stage, where the whole received graph is re-serialized — stacks the
-    # two high-water marks on top of each other for no reason.
-    with stage("build_and_store_report"):
-        report_path = Path("conditioning_report.md")
-        report_path.write_text(
-            build_report(walls, predictions, type_groups=type_groups),
-            encoding="utf-8",
-        )
-        try:
-            automate_context.store_file_result(report_path)
-        except Exception as exc:
-            print(f"[ConditioningPOC] Could not store report: {exc}")
+        # 2a. Everything that isn't a wall (2026-09-07 later still). The
+        # 'Conditioned/All/<source>' model republishes every object, so every
+        # object the category engine can honestly place gets a code too —
+        # same corroborate/conflict mechanism as the wall engine, applied to
+        # a per-category rule table (see categories.py; the table is a set
+        # of judgements the estimator hasn't reviewed, and every result says
+        # so via Requires Verification). Anything it can't place stays
+        # `not conditioned`, visibly, rather than guessed.
+        with stage("classify_categories"):
+            category_results = classify_categories(
+                model, exclude_ids={w.object_id for w in walls}
+            )
 
-    # 5. Create augmented 'Conditioned/<source model name>' model version
-    with stage("create_conditioned_version"):
-        new_version_id = create_conditioned_version(
-            automate_context, root, walls, predictions,
-            code_property_name=function_inputs.code_property_name,
-            type_groups=type_groups,
-        )
+        # 2b. Sub-group wall types within each predicted code. A Level 4 code
+        # on its own answers "what kind of element" and immediately raises
+        # "yes, but which one" — a 6" smoke partition and a furring wall are
+        # both C1010.10 and cost nothing like each other. See
+        # conditioning/grouping.py.
+        with stage("assign_type_groups"):
+            # assign_type_groups() now returns a tier hierarchy, not one flat
+            # split — type_groups (per-wall, always the `full` tier) is what
+            # gets imprinted; all_type_groups is every tier's row (coarse,
+            # fire_acoustic, full), for the report to show the roll-up
+            # structure rather than only the finest leaf. See grouping.py.
+            type_groups, all_type_groups = assign_type_groups(walls, predictions)
+            tier_counts = Counter(g.tier for g in all_type_groups)
+            print(
+                f"[ConditioningPOC] {tier_counts['coarse']} coarse wall-type "
+                f"groups, refined into {tier_counts['fire_acoustic']} "
+                f"fire/acoustic groups and {tier_counts['full']} fully-split "
+                f"groups, across {len(walls)} elements."
+            )
+
+        # 3. Per-object viewer annotations
+        with stage("attach_viewer_annotations"):
+            attach_viewer_annotations(
+                automate_context,
+                classification.level4,
+                classification.non_level4_coded,
+                predictions,
+            )
+            attach_category_annotations(automate_context, category_results)
+
+        # 4. Conditioning report. Deliberately not bound to a local: the
+        # report is the largest single string this function builds, and
+        # holding it alive through create_conditioned_version() below — the
+        # peak-memory stage, where every wall's geometry gets re-encoded into
+        # the new bundle — stacks the two high-water marks on top of each
+        # other for no reason.
+        with stage("build_and_store_report"):
+            report_path = Path("conditioning_report.md")
+            report_path.write_text(
+                build_report(
+                    walls, predictions, type_groups=all_type_groups,
+                    category_results=category_results,
+                ),
+                encoding="utf-8",
+            )
+            try:
+                automate_context.store_file_result(report_path)
+            except Exception as exc:
+                print(f"[ConditioningPOC] Could not store report: {exc}")
+
+        # 5. Create augmented 'Conditioned/Walls/<source model name>' and
+        # 'Conditioned/All/<source model name>' model versions — the former is
+        # conditioned walls only, the latter a full republish of the whole
+        # received scene with the same conditioning patched onto its walls
+        # (added 2026-09-07 later still, after walls-only turned out to read
+        # as data loss to a reviewer comparing models directly — see
+        # speckle_io.py's module docstring). Both publish via
+        # operations.send3/BundleBuilder from the conditioned WallRecord
+        # data — not by mutating and resending `model`, which isn't a
+        # supported workflow for a bundle-only receive (see this module's
+        # docstring) and wouldn't be possible anyway since `model` is a
+        # read-only view. See speckle_io.py.
+        with stage("create_conditioned_version"):
+            conditioned_versions = create_conditioned_version(
+                automate_context, model, walls, predictions,
+                code_property_name=function_inputs.code_property_name,
+                type_groups=type_groups,
+                category_results=category_results,
+            )
 
     # 6. Success summary — leads with the outcome (what changed and how
     # trustworthy it is), not a raw tally, since this is the headline a
@@ -262,8 +312,21 @@ def automate_function(
         )
     if cat_count:
         summary += f" {cat_count} classified via Revit's own curtain wall category."
-    if new_version_id:
-        summary += f" Conditioned model: {new_version_id}"
+    if category_results:
+        cat_tier3 = sum(1 for r in category_results if r.tier == 3)
+        summary += (
+            f" Beyond walls, {len(category_results)} other elements were coded "
+            f"by category rules (unreviewed by the estimator — "
+            f"{cat_tier3} at Tier 3)."
+        )
+    if conditioned_versions.all_version_id:
+        summary += f" Full model: {conditioned_versions.all_version_id}"
+    elif conditioned_versions.walls_version_id:
+        # The full republish can fail independently of the walls-only one
+        # (it's the larger of the two bundles — see speckle_io.py's
+        # ConditionedVersions docstring) — fall back to naming whichever
+        # model actually published rather than going silent.
+        summary += f" Walls model: {conditioned_versions.walls_version_id}"
 
     automate_context.mark_run_success(summary)
 
