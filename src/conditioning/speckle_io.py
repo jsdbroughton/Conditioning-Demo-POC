@@ -1124,51 +1124,78 @@ def create_conditioned_version(
         type_groups=type_groups,
     )
 
-    try:
-        source_model_name = _get_source_model_name(automate_context)
-        output_model_name = f"Conditioned/{source_model_name}"
+    category_conditioning = imprint_category_results(
+        category_results or [], code_property_name=code_property_name
+    )
 
-        model = _get_or_create_model(
-            automate_context,
-            model_name=output_model_name,
-            model_description=(
-                f"Walls with predicted Uniformat Assembly Codes for "
-                f"'{source_model_name}' — Conditioning Demo POC"
-            ),
-        )
-        new_version = automate_context.create_new_version_in_project(
-            root_object=root,
-            model_id=model.id,
-            version_message=(
-                "Uniformat Assembly Code predictions applied by Conditioning Demo POC"
-            ),
-        )
+    source_model_name = _get_source_model_name(automate_context)
+    # 'Conditioned/' keeps every output of this function under one parent in
+    # the project's model tree, with 'Walls/' and 'All/' as the two views
+    # beneath it — Speckle treats '/' in a model name as a folder separator.
+    walls_model_name = f"Conditioned/Walls/{source_model_name}"
+    all_model_name = f"Conditioned/All/{source_model_name}"
 
-        # Add the conditioned output to the run's "View Results" viewer
-        # alongside the host model (include_source_model_version=True, the
-        # SDK default) rather than replacing it. The host model has to stay
-        # in view: attach_viewer_annotations() (called earlier, against the
-        # unmutated wall objects) records each result's Speckle object id,
-        # and that id is fixed at receive time — it never gets reassigned to
-        # match the mutated/re-hashed objects pushed to the artifact model
-        # (confirmed against specklepy's serializer, see NOTES.md). So the
-        # interactive per-object highlight markers only resolve against a
-        # scene that still has the host model loaded. Adding the artifact
-        # model as an extra resource just means reviewers can also inspect
-        # the actual conditioned-code output in the same viewer, overlaid
-        # rather than swapped in.
+    walls_published = _publish_bundle(
+        automate_context,
+        walls_model_name,
+        model_description=(
+            f"Walls and curtain-wall elements with predicted Uniformat "
+            f"Assembly Codes for '{source_model_name}' — Conditioning Demo POC"
+        ),
+        builder=_build_walls_bundle(received_model, walls, walls_model_name),
+        send_message=(
+            "Uniformat Assembly Code predictions applied by Conditioning Demo POC"
+        ),
+    )
+    all_published = _publish_bundle(
+        automate_context,
+        all_model_name,
+        model_description=(
+            f"Full republish of '{source_model_name}' with predicted Uniformat "
+            f"Assembly Codes patched onto its walls — Conditioning Demo POC"
+        ),
+        builder=_build_full_bundle(
+            received_model, walls, all_model_name, code_property_name,
+            category_conditioning=category_conditioning,
+        ),
+        send_message=(
+            "Full model republish with Uniformat Assembly Code predictions "
+            "applied by Conditioning Demo POC"
+        ),
+    )
+
+    # Add both artifact versions to the run's "View Results" viewer alongside
+    # the host model (include_source_model_version=True, the SDK default)
+    # rather than replacing it. The host model has to stay in view:
+    # attach_viewer_annotations() (called earlier, against the unmutated wall
+    # objects) records each result's Speckle object id, and that id is fixed
+    # at receive time — it never gets reassigned to match the freshly-built
+    # objects pushed to either artifact model. So the interactive per-object
+    # highlight markers only resolve against a scene that still has the host
+    # model loaded. Adding the artifact models as extra resources just means
+    # reviewers can also inspect the actual conditioned output — either view
+    # of it — in the same viewer, overlaid rather than swapped in.
+    resource_ids = [
+        f"{model.id}@{version_id}"
+        for published in (walls_published, all_published)
+        if published is not None
+        for model, version_id in [published]
+    ]
+    if resource_ids:
         try:
             automate_context.set_context_view(
-                resource_ids=[f"{model.id}@{new_version.id}"],
+                resource_ids=resource_ids,
                 include_source_model_version=True,
             )
         except Exception as exc:
             print(
-                f"[ConditioningPOC] Could not add artifact model to results view: {exc}"
+                f"[ConditioningPOC] Could not add artifact models to "
+                f"results view: {exc}"
             )
 
-        return new_version.id
-
-    except Exception as exc:
-        print(f"[ConditioningPOC] Augmented version creation failed: {exc}")
-        return None
+    return ConditionedVersions(
+        walls_model_name=walls_model_name,
+        walls_version_id=walls_published[1] if walls_published else None,
+        all_model_name=all_model_name,
+        all_version_id=all_published[1] if all_published else None,
+    )
