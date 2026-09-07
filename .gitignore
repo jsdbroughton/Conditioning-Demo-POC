@@ -327,3 +327,5 @@ docs/STATE.md
 # the README.
 email-draft-*.md
 *.draft.md
+
+*.rvt
