@@ -70,6 +70,11 @@ select = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.ruff.lint.per-file-ignores]
+# Generated verbatim from the client's spreadsheet — a description is as long
+# as the client wrote it. See scripts/regenerate_acme_reference.py.
+"src/conditioning/acme_reference.py" = ["E501"]
+
 [tool.setuptools]
 # src layout: the `conditioning` package (business logic) lives under src/ and
 # is installed properly via `uv sync` (or `pip install .`). main.py stays at
