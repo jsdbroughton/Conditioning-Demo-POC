@@ -180,7 +180,10 @@ independently, since one can publish without the other:
   made without the estimator** (same status as the height bands); every
   result carries `Requires Verification: True` and a plain-English source,
   and the report says so up front. Sub-elements (railing supports,
-  handrails, top rails) inherit their placed parent's code, tier and all.
+  handrails, top rails, nested door families such as an ADA clearance) are
+  `Status: component` — no Level 4 Code of their own, the parent's code
+  noted under `Parent Level 4 Code` — so they never inflate a count;
+  clearance/annotation families are never classified even standalone.
   Categories with no rule, or where no signal fires (Generic Models,
   unrecognised Mechanical Equipment, a Door with no Function of its own or
   its host wall's and no telling name), stay `not conditioned` rather than
@@ -195,7 +198,7 @@ model, via `set_context_view`.
 
 | Key | On | Meaning |
 |-----|-----|---------|
-| `Status` | all | `existing` (model already had a valid code), `predicted`, or — on non-wall objects in `Conditioned/All/…` that no rule could place — `not conditioned` |
+| `Status` | all | `existing` (model already had a valid code), `predicted`, or — on non-wall objects in `Conditioned/All/…` — `component` (a sub-element priced with its parent; carries `Parent Level 4 Code` and no `Level 4 Code`) or `not conditioned` (nothing could place it) |
 | `Level 4 Code` | all | The code the element ends up carrying |
 | `Level 4 Code Description` | all | ACME's own description text for that code, straight from the Estimate Detail Structure (e.g. `Exterior Wall Veneer`) |
 | `Level 4 Code Source` | all | Plain English: authored by the model, or derived by the function and from what evidence |
