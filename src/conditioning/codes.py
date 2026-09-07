@@ -32,18 +32,34 @@ wasn't matching a Level 4 sub-code):
 IMPORTANT: In this system curtain walls are B2010.40 ("Fabricated Exterior Wall
 Assemblies"), NOT B2050 ("Exterior Doors and Grilles"). This is a common mistake.
 
-The hardcoded ACME_CODES dict below is validated against the source
+The hand-curated ACME_WALL_CODES dict below is validated against the source
 spreadsheet in tests/test_acme_codes_fixture.py (fixtures/ACME Studios -
 Uniformat Estimate Detail Structure.xlsx) — that test is the guardrail
 against drift, not a switch to loading codes dynamically. Direction as of
 2026-08-12 is to keep this hardcoded for now.
+
+2026-09-07 (later still): what used to be called ACME_CODES here — the 21
+wall/partition codes — is now ACME_WALL_CODES: the SCOPE of what this
+function derives, and the only membership test wall-code normalisation
+(`try_normalise_to_level4`) consults, so a wall carrying a collapsed door
+code still gets remapped rather than waved through as valid. ACME_CODES is
+now the FULL client structure (679 Level 3/4 codes, generated into
+acme_reference.py from the same spreadsheet) and is the description lookup
+used everywhere a code is shown to a reader. The two were one dict until the
+full-scene republish put every non-wall object in front of a reviewer and
+the function wrongly told them the client had no codes for those
+categories. It does — it's this function that has no rules for them yet.
 """
 
 from __future__ import annotations
 
 import re
 
-ACME_CODES: dict[str, str] = {
+from conditioning.acme_reference import ACME_CODES
+
+__all__ = ["ACME_CODES", "ACME_WALL_CODES"]
+
+ACME_WALL_CODES: dict[str, str] = {
     # ── A2010 Subgrade / Basement Walls ─────────────────────────────────────
     "A2010":    "Walls for Subgrade Enclosures",
     "A2010.10": "Subgrade Enclosure Wall Construction",
@@ -355,7 +371,7 @@ def try_normalise_to_level4(code: str) -> str | None:
     if m:
         normalised = f"{m.group(1)}.{m.group(2)}"
         # Only accept if the normalised code is a known ACME Level 4 code
-        if normalised in ACME_CODES:
+        if normalised in ACME_WALL_CODES:
             return normalised
     return None
 
