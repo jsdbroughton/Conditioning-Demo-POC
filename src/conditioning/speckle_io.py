@@ -174,11 +174,36 @@ def _add_type_group(
     if type_groups:
         group = type_groups.get(wall.object_id)
         if group is not None:
-            props[code_property_name].update({
+            entry = {
                 "Inferred Type Group": group.key,
                 "Inferred Group Label": group.label,
                 "Inferred Group Size": group.size,
-            })
+            }
+            # Description and rollups (added 2026-09-07) report what the
+            # group's members actually have in common — one value where they
+            # agree, "varies (...)" listing every distinct value where they
+            # don't (see grouping.py's 2026-09-07 note: a big real group
+            # routinely spans several Type Marks, so picking just one here
+            # would hide that rather than report it). Rollups are omitted
+            # per-field when the group yielded nothing for that field, same
+            # discipline as the "Observed *" keys below.
+            if group.description:
+                entry["Inferred Group Description"] = group.description
+            if group.wall_tags:
+                entry["Inferred Group Wall Tags"] = ", ".join(sorted(group.wall_tags))
+            if group.fire_ratings:
+                entry["Inferred Group Fire Ratings"] = ", ".join(
+                    sorted(group.fire_ratings)
+                )
+            if group.stc_values:
+                entry["Inferred Group Acoustic STC"] = ", ".join(
+                    sorted(group.stc_values)
+                )
+            if group.stud_sizes:
+                entry["Inferred Group Stud Sizes"] = ", ".join(
+                    sorted(group.stud_sizes)
+                )
+            props[code_property_name].update(entry)
 
     # Attributes read off the type name and/or the wall's own parameters
     # (Fire Rating, Type Mark) — see attributes.py's 2026-09-07 note for why
