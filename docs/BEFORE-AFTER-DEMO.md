@@ -2,7 +2,10 @@
 
 Written for an internal Speckle audience who hasn't worked on this code — no
 engineering background assumed. Real numbers throughout are measured against
-live client models (see `docs/NOTES.md`'s 2026-08-14 and 2026-09-07 entries),
+live client models (see `docs/NOTES.md`'s 2026-08-14 and 2026-09-07 entries — the
+2026-09-07 entries span two builds, the pre-parquet-port function and the
+version described here; a mid-2026-09-07 port and a property-path bug in the
+early build of it are why a couple of numbers below carry a caveat),
 not estimated. The client itself is referred to here as "ACME Studios," per
 this repo's own anonymization rule (see `README.md`) — internally the real
 name is known, but this file lives in a repo that's meant to stay shareable,
@@ -49,9 +52,15 @@ literally named `Empty` look, in the raw model, equally authoritative.
 ## What the function adds (after)
 
 The function reads the triggered version, classifies every wall, and
-publishes the result as a **new sibling model version** — the source model
-is never modified. Every wall in that new version carries one added
-property containing, depending on the wall:
+publishes the result as **two new sibling model versions** — a walls-only
+one and a full republish of the whole building (see "How to see this
+yourself" below) — the source model is never modified. In the full
+republish, every element that isn't a wall also gets a code where the
+evidence supports one — doors, floors, stairs, fixtures, ducts — using the
+same "several independent clues must agree" approach as walls, and every
+one of those is stamped as a proposal for the estimator to correct, because
+the rule table behind them hasn't been reviewed by the client yet. Every
+wall carries one added property containing, depending on the wall:
 
 - Its classification code, and whether that code was **already there** or
   **worked out** — and if worked out, a one-to-three confidence tier plus a
@@ -65,10 +74,12 @@ property containing, depending on the wall:
   assumed).
 - Where the client's own classification has nothing finer than "interior
   partition" for a wall, a similarity-based grouping into the finer
-  sub-types their own estimators actually think in — with a plain-English
-  description of what that group's members share, and an honest "varies
-  between X, Y, Z" wherever they don't all agree, rather than a silent
-  guess.
+  sub-types their own estimators actually think in — at three
+  granularities (a coarse resemblance read, a cost-relevant read split on
+  fire/acoustic rating, and a fully-split read that also separates on
+  height band), each with a plain-English description of what that group's
+  members share, and an honest "varies between X, Y, Z" wherever they
+  don't all agree, rather than a silent guess.
 
 Alongside that: color-coded flags directly in the 3D viewer (so a reviewer
 never has to open a properties panel to see which walls need a second look),
@@ -157,8 +168,10 @@ asking.
    Height under Parameters → Instance Parameters → Constraints — several
    clicks deep, one wall at a time, nothing summarized.
 3. Open the automation run's "View Results" link, or navigate directly to
-   the sibling `Conditioned/<model name>` version — the source model stays
-   loaded alongside it, so the viewer's color-coded flags still resolve.
+   the sibling `Conditioned/All/<model name>` version (the full building, conditioned
+   walls patched in) or `Conditioned/Walls/<model name>` (conditioned walls only) — the
+   source model stays loaded alongside either, so the viewer's color-coded
+   flags still resolve.
 4. Open the same wall's Properties panel in the new version. Everything
    from the section above now sits under one property — one place to look,
    rather than several parameter groups.
