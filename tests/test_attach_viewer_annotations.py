@@ -26,11 +26,6 @@ from conditioning.speckle_io import attach_viewer_annotations
 from conditioning.walls import WallRecord
 
 
-class _FakeSpeckleObject:
-    def __init__(self) -> None:
-        self.properties: dict = {}
-
-
 class _FakeAutomationContext:
     """Stands in for speckle_automate.AutomationContext.
 
@@ -66,11 +61,16 @@ class _FakeAutomationContext:
 
 def _wall(object_id: str, **overrides) -> WallRecord:
     defaults = dict(
-        obj=_FakeSpeckleObject(), category="Walls", type_name="", family="Basic Wall",
+        obj=None, category="Walls", type_name="", family="Basic Wall",
         function="", type_mark="", width_mm=200.0, level="LEVEL 01", assembly_code=None,
     )
     defaults.update(overrides)
     return WallRecord(object_id=object_id, **defaults)
+
+
+def _ids(objs) -> set[str]:
+    """The applicationIds a list of _ResultRef stand-ins was attached to."""
+    return {o.applicationId for o in objs}
 
 
 class TestTier3GetsAWarningLevelAnnotation:
