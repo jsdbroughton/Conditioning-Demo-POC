@@ -974,36 +974,55 @@ def _build_full_bundle(
 
 
 def _not_conditioned(category: str | None, code_property_name: str) -> dict:
-    """The conditioning dict for an object this function did not classify.
+    """The conditioning dict for an object nothing could place.
 
     2026-09-07 (later still): once 'Conditioned/All/<source>' republished
     every object, a door or a floor opened in the output carried the same
     property panel as the source and nothing else — indistinguishable from a
-    wall the function had failed on. Feedback called that a gap, fairly.
-    Written under the SAME namespaced key as a real result so a Power BI
-    filter on Status sees every object exactly once: `existing` /
-    `predicted` / `not conditioned`.
+    wall the function had failed on. Written under the SAME namespaced key
+    as a real result so a Power BI filter on Status sees every object
+    exactly once: `existing` / `predicted` / `not conditioned`.
 
-    The reason stated on the object is precise about whose gap it is. A
-    first draft said the client's reference list had no codes for non-wall
-    categories — wrong, and corrected the same day against the fixture
-    spreadsheet: the client's structure has 526 Level 4 codes across every
-    Uniformat division (doors are C1030.x/B2050.x, floors B1010.20, and so
-    on — see acme_reference.py). What doesn't exist is a derivation RULE in
-    this function for anything outside `codes.ACME_WALL_CODES`; walls.py only
-    collects wall and curtain-wall categories. So the honest wording is "no
-    rule yet", not "no code exists". A wall-family object with no
-    conditioning result (collected but imprinted nothing) lands here too.
+    The reason has to say which of two very different things happened,
+    because a reviewer reading it on a Door after the category engine
+    shipped asked, reasonably, why doors weren't being conditioned at all:
+
+      - the category has NO rule (Rooms, Generic Models, Specialty
+        Equipment…) — this function knows nothing about it; or
+      - the category HAS a rule but no signal fired — for a Door that means
+        Function was blank, the type name matched nothing, no already-coded
+        Door was close enough to vouch for it, and category alone can't
+        choose interior (C1030) from exterior (B2050). Left blank on
+        purpose: the whole engine is built on not trusting one field.
+
+    A first version said the client had no codes for the category; wrong
+    (see acme_reference.py) and corrected the same day.
     """
     label = f"category {category!r}" if category else "an object with no category"
+    if is_non_physical(category):
+        reason = (
+            f"Not applicable — {label} is not physical construction (a room, "
+            f"area, level, grid or reference), so no Uniformat cost code exists "
+            f"for it"
+        )
+    elif category in CATEGORY_RULES:
+        reason = (
+            f"Not derived — rules exist for {label} but none of the evidence "
+            f"they need was present (no Function parameter, no recognised type "
+            f"name, no existing code, no already-coded element of the same "
+            f"category close enough to match); category alone is not enough "
+            f"to choose a section"
+        )
+    else:
+        reason = (
+            f"Not derived — this function has no derivation rule for {label}; "
+            f"walls, curtain walls and the categories in categories.py are "
+            f"the ones it currently codes"
+        )
     return {
         code_property_name: {
             "Status": "not conditioned",
-            "Level 4 Code Source": (
-                f"Not derived — this function currently derives codes for wall "
-                f"and curtain-wall categories only; no derivation rule exists "
-                f"yet for {label}"
-            ),
+            "Level 4 Code Source": reason,
             "Requires Verification": False,
         }
     }
