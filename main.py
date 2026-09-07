@@ -312,21 +312,37 @@ def automate_function(
         )
     if cat_count:
         summary += f" {cat_count} classified via Revit's own curtain wall category."
-    if category_results:
-        cat_tier3 = sum(1 for r in category_results if r.tier == 3)
+    coded_others = [r for r in category_results if r.method != "component"]
+    if coded_others:
+        cat_tier3 = sum(1 for r in coded_others if r.tier == 3)
         summary += (
-            f" Beyond walls, {len(category_results)} other elements were coded "
+            f" Beyond walls, {len(coded_others)} other elements were coded "
             f"by category rules (unreviewed by the estimator — "
             f"{cat_tier3} at Tier 3)."
         )
     if conditioned_versions.all_version_id:
         summary += f" Full model: {conditioned_versions.all_version_id}"
-    elif conditioned_versions.walls_version_id:
-        # The full republish can fail independently of the walls-only one
-        # (it's the larger of the two bundles — see speckle_io.py's
-        # ConditionedVersions docstring) — fall back to naming whichever
-        # model actually published rather than going silent.
+    if conditioned_versions.walls_version_id:
         summary += f" Walls model: {conditioned_versions.walls_version_id}"
+
+    # A bundle that failed to publish is a failed run, not a footnote. The
+    # full model is the deliverable (2026-09-07 direction); the walls model
+    # is the smaller companion. Either failing is named in the summary with
+    # the exception, and the run is marked failed so it shows red in
+    # Automate rather than reading as success with one model quietly missing
+    # — which is exactly how the first Tower run of the full republish
+    # presented: walls published, full bundle died, summary said nothing.
+    failures = [
+        f"'{name}' did not publish — {error}"
+        for name, error in (
+            (conditioned_versions.all_model_name, conditioned_versions.all_error),
+            (conditioned_versions.walls_model_name, conditioned_versions.walls_error),
+        )
+        if error
+    ]
+    if failures:
+        automate_context.mark_run_failed(summary + " FAILED: " + "; ".join(failures))
+        return
 
     automate_context.mark_run_success(summary)
 
