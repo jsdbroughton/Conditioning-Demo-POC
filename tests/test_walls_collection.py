@@ -6,39 +6,19 @@ Panels"), and the framing members ("Curtain Wall Mullions"). Before this fix,
 collect_walls() only matched category == "Walls" exactly, so every curtain
 wall element in a model was silently excluded from conditioning — not
 misclassified, just never even collected. These tests build a minimal fake
-Speckle object graph (no live Speckle call) to prove all four categories are
-now picked up, and that unrelated categories (e.g. Doors) are still excluded.
+bundle Model (no live Speckle call) to prove all four categories are still
+picked up after the 2026-09-07 port to the 2026.9 bundle format, and that
+unrelated categories (e.g. Doors) are still excluded.
+
+2026-09-07: rewritten for collect_walls(model) — model.objects is now a
+flat list (no `.elements` tree to recurse; see walls.py's module docstring),
+so there's no more "root with nested elements" fixture shape to build.
 """
 
 from __future__ import annotations
 
 from conditioning.walls import _is_target_category, collect_walls
-
-
-class _FakeSpeckleObject:
-    """Minimal stand-in for a Speckle DataObject.
-
-    Supports the traversal pattern collect_walls() relies on: .category, .id,
-    .properties, and .get_member_names() / .elements for recursion.
-    """
-
-    def __init__(
-        self,
-        id: str,
-        category: str | None = None,
-        elements=None,
-        properties=None,
-    ):
-        self.id = id
-        self.category = category
-        self.properties = properties or {}
-        self.elements = elements or []
-
-    def get_member_names(self):
-        names = ["properties"]
-        if self.elements:
-            names.append("elements")
-        return names
+from tests.fakes import FakeModel, FakeModelObject
 
 
 class TestIsTargetCategory:
@@ -66,22 +46,26 @@ class TestIsTargetCategory:
         assert _is_target_category("") is False
 
 
+def _obj(application_id: str, category: str | None) -> FakeModelObject:
+    return FakeModelObject(
+        application_id=application_id,
+        properties={"category": category} if category else {},
+    )
+
+
 class TestCollectWallsIncludesCurtainWallFamily:
     """Test collect walls includes curtain wall family."""
     def test_all_curtain_categories_and_walls_collected_doors_excluded(self):
         """All curtain categories and walls collected doors excluded."""
-        wall          = _FakeSpeckleObject("wall-1", category="Walls")
-        curtain_sys   = _FakeSpeckleObject("cs-1", category="Curtain Systems")
-        curtain_panel = _FakeSpeckleObject("cp-1", category="Curtain Panels")
-        mullion       = _FakeSpeckleObject("cm-1", category="Curtain Wall Mullions")
-        door          = _FakeSpeckleObject("door-1", category="Doors")
+        wall          = _obj("wall-1", "Walls")
+        curtain_sys   = _obj("cs-1", "Curtain Systems")
+        curtain_panel = _obj("cp-1", "Curtain Panels")
+        mullion       = _obj("cm-1", "Curtain Wall Mullions")
+        door          = _obj("door-1", "Doors")
 
-        root = _FakeSpeckleObject(
-            "root",
-            elements=[wall, curtain_sys, curtain_panel, mullion, door],
-        )
+        model = FakeModel([wall, curtain_sys, curtain_panel, mullion, door])
 
-        walls = collect_walls(root)
+        walls = collect_walls(model)
         ids = {w.object_id for w in walls}
 
         assert ids == {"wall-1", "cs-1", "cp-1", "cm-1"}
@@ -89,9 +73,8 @@ class TestCollectWallsIncludesCurtainWallFamily:
 
     def test_category_is_recorded_on_the_wall_record(self):
         """Category is recorded on the wall record."""
-        curtain_panel = _FakeSpeckleObject("cp-1", category="Curtain Panels")
-        root = _FakeSpeckleObject("root", elements=[curtain_panel])
+        model = FakeModel([_obj("cp-1", "Curtain Panels")])
 
-        walls = collect_walls(root)
+        walls = collect_walls(model)
         assert len(walls) == 1
         assert walls[0].category == "Curtain Panels"
