@@ -498,7 +498,9 @@ def classify_categories(
         if obj.application_id in exclude_ids:
             continue
         element = read_element(obj)
-        if element is not None and element.category in CATEGORY_RULES:
+        if element is None:
+            continue
+        if element.category in CATEGORY_RULES or element.parent_id:
             elements.append(element)
 
     references: dict[str, list[ElementRecord]] = {}
@@ -507,12 +509,39 @@ def classify_categories(
             references.setdefault(element.category, []).append(element)
 
     results: list[CategoryResult] = []
+    unplaced: list[ElementRecord] = []
     for element in elements:
         result = classify_element(
             element, references.get(element.category, []), threshold
         )
         if result is not None:
             results.append(result)
+        else:
+            unplaced.append(element)
+
+    # Second pass — inheritance from a placed parent. Railing supports,
+    # handrails and top rails are SUBELEMENTs of a railing; a curtain-wall
+    # panel of its curtain system. They have no rule of their own and
+    # shouldn't: they are priced as part of the parent. 2,183 such elements
+    # on the live Core model sat unplaced next to their coded parent. The
+    # parent's code, confidence and tier carry over, with the source saying
+    # so — an inherited code is exactly as trustworthy as the one it came
+    # from, no more.
+    by_id = {r.object_id: r for r in results}
+    for element in unplaced:
+        parent = by_id.get(element.parent_id) if element.parent_id else None
+        if parent is None:
+            continue
+        results.append(CategoryResult(
+            object_id=element.object_id, category=element.category,
+            code=parent.code, confidence=parent.confidence, tier=parent.tier,
+            method="heuristic_parent",
+            basis=(
+                f"its parent element ({parent.category}), which was placed "
+                f"from {parent.basis}"
+            ),
+            original_code=element.assembly_code,
+        ))
 
     print(
         f"[ConditioningPOC] Category engine placed {len(results)} of "
