@@ -14,23 +14,64 @@ similarity matching against already-coded walls and a heuristic fallback, then:
   3. Creates a new version in a "Conditioned/<source model name>" model with
      predicted codes imprinted — namespaced per source model so runs from
      different models don't collide into one shared output
+
+2026-09-07: ported onto specklepy 2026.9's parquet bundle format, in place of
+the pre-2026.9 JSON object graph — see
+https://docs.speckle.systems/next/developers/sdks/python/breaking-changes
+and https://docs.speckle.systems/next/developers/object-model/overview.
+`AutomationContext.receive_version()`/`.create_new_version_in_project()`
+still only speak the old `operations.receive`/`send` JSON-graph transport
+even on specklepy 2026.9.0b3 (checked directly against that release's
+`speckle_automate/automation_context.py`) — bumping the dependency alone
+changes nothing, and the old receive path's Base-tree compatibility
+projection silently drops the top-level `category`/`type`/`family` fields
+and the level string this function's wall-identification logic depends on
+(confirmed by reading `specklepy/bundle/base_projection.py`; not carried
+over by design — see the Warning on the breaking-changes page that this
+projection "is not a lossless round trip"). So this function bypasses
+`AutomationContext` for both the receive and the publish and talks to the
+new `operations.receive3`/`send3` bundle API directly:
+
+  - Receive: `operations.receive3(...)` returns a disposable
+    `specklepy.bundle.model.Model` — a flat `model.objects` list plus typed
+    relations, not a `Base` tree (there is no more `.elements` to recurse).
+    See conditioning/walls.py's module docstring for exactly how wall
+    identification reads that shape.
+  - Publish: mutating the received Model and resending it is explicitly
+    unsupported ("Receiving a bundle-only version as a Base tree and
+    sending it again with operations.send is not a supported copy
+    workflow" — same breaking-changes page), and there's nothing to mutate
+    in-place anyway since Model is a read-only view over the downloaded
+    parquet files. create_conditioned_version() in speckle_io.py instead
+    builds a fresh `specklepy.bundle.builder.BundleBuilder` from the
+    conditioned WallRecord data and publishes it with `operations.send3`.
+
+`automate_context` (AutomationContext) is kept and still used for everything
+that isn't receiving/sending a version's data: looking up/creating the
+"Conditioned/<model>" model, attaching viewer result annotations, storing
+the report artifact, and marking run success — none of those touch the
+object-graph-vs-bundle question.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode
 from speckle_automate import AutomateBase, AutomationContext, execute_automate_function
+from specklepy.api import operations
 
+from conditioning.categories import classify_categories
 from conditioning.codes import DEFAULT_CONDITIONING_KEY
 from conditioning.grouping import assign_type_groups
 from conditioning.instrumentation import stage
 from conditioning.predict import predict_codes
 from conditioning.report import build_report
 from conditioning.speckle_io import (
+    attach_category_annotations,
     attach_viewer_annotations,
     create_conditioned_version,
 )
