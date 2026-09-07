@@ -117,7 +117,72 @@ def _observed_attributes_section(walls: list[WallRecord]) -> list[str]:
     return lines
 
 
-def _type_group_section(type_groups: dict) -> list[str]:
+_TIER_LABELS = {
+    "coarse": "Coarse (name only)",
+    "fire_acoustic": "+ Fire/Acoustic",
+    "full": "+ Height (full)",
+}
+
+
+def _category_section(results: list) -> list[str]:
+    """Non-wall objects coded by the category engine, one row per (category, code).
+
+    2026-09-07 (later still) — see categories.py. Kept separate from the wall
+    tables above on purpose: these come from a different, smaller evidence
+    base (no attribute vocabulary, no sub-grouping), and the table of rules
+    behind them is a set of judgements the estimator has not yet reviewed.
+    Says so up front rather than in a footnote.
+    """
+    components = [r for r in results if r.method == "component"]
+    results = [r for r in results if r.method != "component"]
+    rows: dict[tuple[str, str], list] = defaultdict(list)
+    for result in results:
+        rows[(result.category, result.code)].append(result)
+    tiers: Counter = Counter(r.tier for r in results)
+    methods: Counter = Counter(r.method for r in results)
+    heuristic_count = sum(
+        n for method, n in methods.items() if method.startswith("heuristic")
+    )
+
+    lines = [
+        "",
+        "## Non-wall elements — category engine",
+        "",
+        f"{len(results)} non-wall elements were given a Level 4 code by the "
+        "category engine (`categories.py`). **The category → code table "
+        "behind these is a set of judgements made without the estimator; "
+        "every row below should be read as a proposal to correct, not a "
+        "determination.** Elements in categories with no rule, or where no "
+        "signal fired, are `not conditioned` in the `Conditioned/All` model "
+        "rather than guessed.",
+        "",
+        "| Metric | Count |",
+        "|--------|-------|",
+        f"| Already coded (Tier 0) | {methods.get('existing', 0)} |",
+        f"| Matched to a coded neighbour of the same category | "
+        f"{methods.get('similarity', 0)} |",
+        f"| Derived from category / Function / name | {heuristic_count} |",
+        f"| Tier 1 / Tier 2 / Tier 3 | {tiers.get(1, 0)} / {tiers.get(2, 0)} "
+        f"/ {tiers.get(3, 0)} |",
+        f"| Components of a parent element (not counted above) | "
+        f"{len(components)} |",
+        "",
+        "| Category | Level 4 Code | Description | Elements | Tiers | Methods |",
+        "|----------|--------------|-------------|----------|-------|---------|",
+    ]
+    for (category, code), group in sorted(rows.items()):
+        tier_str = ", ".join(
+            f"T{t}: {n}" for t, n in sorted(Counter(r.tier for r in group).items())
+        )
+        method_str = ", ".join(sorted({r.method for r in group}))
+        lines.append(
+            f"| {category} | `{code}` | {ACME_CODES.get(code, '')} | "
+            f"{len(group)} | {tier_str} | {method_str} |"
+        )
+    return lines
+
+
+def _type_group_section(type_groups: list) -> list[str]:
     """Render the wall-type sub-groups found within each Level 4 code.
 
     This is the section an estimator actually reads: the Level 4 code says
@@ -126,11 +191,15 @@ def _type_group_section(type_groups: dict) -> list[str]:
     are the model's own vocabulary rather than anything imposed — which is
     exactly what makes them a starting point for mapping onto the client's
     own wall types rather than a substitute for it.
-    """
-    by_key: dict[str, tuple[str, int, str]] = {}
-    for group in type_groups.values():
-        by_key[group.key] = (group.label, group.size, group.description)
 
+    2026-09-07 (later still): `type_groups` is now the flat list every tier
+    produces (see grouping.assign_type_groups), not a per-wall dict — a
+    group can be more or less coarse, and the table now shows that as
+    multiple rows per family (one per tier that actually split something)
+    rather than picking one granularity and hiding the rest. A `Parent`
+    column lets a reader trace a fine row back up to the coarser one it
+    refines; a row with no parent is a coarse, top-of-hierarchy group.
+    """
     lines = [
         "",
         "---",
@@ -140,37 +209,49 @@ def _type_group_section(type_groups: dict) -> list[str]:
         "**These groups are not a classification and carry no authority.** "
         "They are observed by Speckle from the model's own element type "
         "names, they do not come from any estimating standard, and the "
-        "letters A/B/C are ours — assigned by size, renumbering whenever the "
-        "model changes. Nothing here should be treated as a code.",
+        "letters/numbers are ours — assigned by size, renumbering whenever "
+        "the model changes. Nothing here should be treated as a code.",
         "",
         "Element types are clustered by name similarity within each Level 4 "
         "code, so a code covering thousands of walls can be broken down by "
         "what those walls appear to be. Each label reports the words a "
         "group's members have in common.",
         "",
-        "**What this cannot do.** Similarity compares words, not meaning, so "
-        "it cannot tell a difference that matters from one that doesn't. "
-        "`Spandrel` and `Spandrel L5` differ by one word and are the same "
-        "wall; `SMOKE` and `NFR` differ by one word and are different walls. "
-        "Measured on real models, no similarity threshold separates those two "
-        "cases — so a group may well span a fire rating or acoustic rating "
-        "boundary. Read these as \"these types resemble each other\", never "
-        "as \"these types are equivalent\". Grouping by rating, STC or stud "
-        "size needs the estimating vocabulary, which is a separate input.",
+        "**Three tiers, not one.** A coarse group (name similarity only) can "
+        "span a fire rating, acoustic rating or height difference that "
+        "matters for cost — `Spandrel` and `Spandrel L5` differ by one word "
+        "and are the same wall; `SMOKE` and `NFR` differ by one word and are "
+        "different ones, and no similarity threshold separates those two "
+        "cases. So each coarse group is refined into a Fire/Acoustic tier "
+        "(splitting on Fire Rating + Acoustic STC), refined again into a "
+        "full tier (splitting further on Height Band). A row only appears at "
+        "a finer tier where that split actually found more than one value — "
+        "a coarse group that's already uniform on fire/acoustic/height stops "
+        "there and gains no redundant sub-rows. Pick whichever tier suits "
+        "the question: coarse for \"which architect types resemble each "
+        "other at all\", full for \"which of these would ever be priced "
+        "differently\".",
         "",
-        "**Description** (added 2026-09-07) answers exactly that span question "
-        "for Type Mark, Fire Rating, Acoustic STC and Stud Size, per group — "
+        "**Description** answers the same span question in words, per row — "
         "one value where every member agrees, `varies (...)` listing all of "
-        "them where they don't. It reports what a group's members turned out "
-        "to have in common; it is never an input to how the group was formed "
-        "(that's still name similarity alone, above).",
+        "them where they don't. On a `full`-tier row, Fire Rating, Acoustic "
+        "STC and Height Band are always single values by construction; "
+        "Type Mark and Stud Size can still vary — nothing splits on either.",
         "",
-        "| Group | Label | Elements | Description |",
-        "|-------|-------|----------|-------------|",
+        "| Tier | Group | Parent | Label | Elements | Description |",
+        "|------|-------|--------|-------|----------|-------------|",
     ]
-    for key in sorted(by_key, key=lambda k: (k.split(" · ")[0], -by_key[k][1], k)):
-        label, size, description = by_key[key]
-        lines.append(f"| `{key}` | {label} | {size} | {description or '—'} |")
+    tier_order = {"coarse": 0, "fire_acoustic": 1, "full": 2}
+    for group in sorted(
+        type_groups,
+        key=lambda g: (g.key.split(" · ")[0], -g.size, tier_order[g.tier], g.key),
+    ):
+        tier_label = _TIER_LABELS.get(group.tier, group.tier)
+        parent = f"`{group.parent_key}`" if group.parent_key else "—"
+        lines.append(
+            f"| {tier_label} | `{group.key}` | {parent} | {group.label} | "
+            f"{group.size} | {group.description or '—'} |"
+        )
     return lines
 
 
@@ -178,7 +259,8 @@ def build_report(
     walls: list[WallRecord],
     predictions: list[Prediction],
     threshold: float = SIMILARITY_MATCH_THRESHOLD,
-    type_groups: dict | None = None,
+    type_groups: list | None = None,
+    category_results: list | None = None,
 ) -> str:
     """Build a markdown conditioning report."""
     classification = classify_walls(walls)
@@ -417,6 +499,9 @@ def build_report(
 
     if type_groups:
         lines += _type_group_section(type_groups)
+
+    if category_results:
+        lines += _category_section(category_results)
 
     lines += ["", "---", "_Generated by Conditioning Demo POC · Speckle Automate_"]
     return "\n".join(lines)

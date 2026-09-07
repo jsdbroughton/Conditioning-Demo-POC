@@ -1,6 +1,6 @@
 """Offline unit tests for imprint_predictions.
 
-The function that writes conditioning output onto wall objects.
+The function that computes conditioning output for each wall.
 
 Written under a single namespaced dict — keyed by `code_property_name`, a
 user-facing Automate input as of 2026-08-14, defaulting to
@@ -14,6 +14,13 @@ Confidence/Tier/Method, auto-applied. "Original Code" is always present in
 the dict (None if the wall had no code at all) so nothing is silently
 dropped. An earlier version wrote a distinct "needs review" status that left
 legacy-coded walls untouched instead — that's no longer the behaviour.
+
+2026-09-07: imprint_predictions() writes to `wall.conditioning` now, not
+`wall.obj.properties` — `wall.obj` is a read-only bundle ModelObject with no
+properties dict to mutate (see speckle_io.py's and walls.py's module
+docstrings). `wall.obj` is irrelevant to this function now, so these tests
+no longer bother constructing one — a wall's `obj` field is left at its
+dataclass default (None) throughout.
 """
 
 from __future__ import annotations
@@ -24,20 +31,13 @@ from conditioning.speckle_io import imprint_predictions
 from conditioning.walls import WallRecord
 
 
-class _FakeSpeckleObject:
-    """Minimal stand-in for a Speckle DataObject — just needs a .properties dict."""
-
-    def __init__(self) -> None:
-        self.properties: dict = {}
-
-
-def _wall_with_obj(object_id: str, **overrides) -> WallRecord:
+def _wall(object_id: str, **overrides) -> WallRecord:
     defaults = dict(
-        category="Walls", type_name="", family="Basic Wall", function="",
+        obj=None, category="Walls", type_name="", family="Basic Wall", function="",
         type_mark="", width_mm=200.0, level="LEVEL 01", assembly_code=None,
     )
     defaults.update(overrides)
-    return WallRecord(obj=_FakeSpeckleObject(), object_id=object_id, **defaults)
+    return WallRecord(object_id=object_id, **defaults)
 
 
 class TestImprintExistingLevel4Wall:
@@ -45,10 +45,10 @@ class TestImprintExistingLevel4Wall:
 
     def test_level4_wall_gets_existing_status(self):
         """Level4 wall gets existing status."""
-        wall = _wall_with_obj("l4-1", assembly_code="B2010.10")
+        wall = _wall("l4-1", assembly_code="B2010.10")
         imprint_predictions([wall], predictions=[])
 
-        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
+        result = wall.conditioning[DEFAULT_CONDITIONING_KEY]
         # Tier 0 ("no work to be done") added 2026-08-14 — every wall now
         # carries a Tier, not just predicted ones. See codes.TIER_LABELS.
         #
@@ -59,6 +59,7 @@ class TestImprintExistingLevel4Wall:
         assert result == {
             "Status": "existing",
             "Level 4 Code": "B2010.10",
+            "Level 4 Code Description": "Exterior Wall Veneer",
             "Level 4 Code Source": "authored — already a valid Level 4 code",
             "Requires Verification": False,
             "Tier": "Tier 0",
@@ -73,13 +74,14 @@ class TestImprintPredictedWall:
 
     def test_uncoded_wall_gets_predicted_status(self):
         """Uncoded wall gets predicted status."""
-        wall = _wall_with_obj("blank-1", function="Exterior")
+        wall = _wall("blank-1", function="Exterior")
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
-        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
+        result = wall.conditioning[DEFAULT_CONDITIONING_KEY]
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.10"
+        assert result["Level 4 Code Description"] == "Exterior Wall Veneer"
         assert result["Method"] == "heuristic_function"
         assert result["Confidence"] == 0.75
         # A lone, uncorroborated Function-param match no longer clears
@@ -99,18 +101,18 @@ class TestImprintRemapsLegacyCode:
 
     def test_astm_coded_wall_gets_predicted_status_with_original_preserved(self):
         """ASTM coded wall gets predicted status with original preserved."""
-        wall = _wall_with_obj("astm-1", function="Exterior", assembly_code="B2010160")
+        wall = _wall("astm-1", function="Exterior", assembly_code="B2010160")
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
-        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
+        result = wall.conditioning[DEFAULT_CONDITIONING_KEY]
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.10"
         assert result["Original Code"] == "B2010160"
         # Same lone-signal case as the uncoded test above — Tier 2, not 1.
         assert result["Tier"] == "Tier 2"
         # the wall's own assembly_code field is untouched by imprinting —
-        # only the written properties dict carries the new code
+        # only the conditioning dict carries the new code
         assert wall.assembly_code == "B2010160"
 
 
@@ -118,7 +120,7 @@ class TestImprintCurtainWallElement:
     """Test imprint curtain wall element."""
     def test_curtain_panel_gets_predicted_b2010_40(self):
         """Curtain panel gets predicted b2010 40."""
-        wall = _wall_with_obj(
+        wall = _wall(
             "cp-1",
             category="Curtain Panels",
             type_name="Glazed Panel",
@@ -126,9 +128,12 @@ class TestImprintCurtainWallElement:
         predictions = predict_codes([wall], threshold=0.65)
         imprint_predictions([wall], predictions)
 
-        result = wall.obj.properties[DEFAULT_CONDITIONING_KEY]
+        result = wall.conditioning[DEFAULT_CONDITIONING_KEY]
         assert result["Status"] == "predicted"
         assert result["Level 4 Code"] == "B2010.40"
+        assert (
+            result["Level 4 Code Description"] == "Fabricated Exterior Wall Assemblies"
+        )
         assert result["Method"] == "heuristic_category"
         assert result["Tier"] == "Tier 1"
 
@@ -137,6 +142,6 @@ class TestConditioningKeyIsSingularNamespace:
     """Test conditioning key is singular namespace."""
     def test_only_one_top_level_key_written(self):
         """Only one top level key written."""
-        wall = _wall_with_obj("l4-1", assembly_code="B2010.10")
+        wall = _wall("l4-1", assembly_code="B2010.10")
         imprint_predictions([wall], predictions=[])
-        assert list(wall.obj.properties.keys()) == [DEFAULT_CONDITIONING_KEY]
+        assert list(wall.conditioning.keys()) == [DEFAULT_CONDITIONING_KEY]

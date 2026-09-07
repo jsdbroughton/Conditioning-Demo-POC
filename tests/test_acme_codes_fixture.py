@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from conditioning.codes import ACME_CODES
+from conditioning.codes import ACME_CODES, ACME_WALL_CODES
 
 openpyxl = pytest.importorskip("openpyxl")
 
@@ -57,12 +57,21 @@ def _load_fixture_codes() -> dict[str, str]:
 
 class TestHardcodedAcmeCodesMatchFixture:
     """Test hardcoded ACME codes match fixture."""
-    def test_every_hardcoded_code_exists_in_source_spreadsheet(self):
-        """Every hardcoded code exists in source spreadsheet."""
+    def test_full_reference_equals_source_spreadsheet_both_ways(self):
+        """acme_reference.ACME_CODES is exactly the spreadsheet's Level 3/4 rows.
+
+        Both directions, unlike the wall-scope check below: this dict is
+        generated (scripts/regenerate_acme_reference.py), so a code missing
+        from it means the spreadsheet moved and nobody regenerated.
+        """
+        assert ACME_CODES == _load_fixture_codes()
+
+    def test_every_wall_code_exists_in_source_spreadsheet(self):
+        """Every hand-curated wall code exists in the source spreadsheet."""
         fixture_codes = _load_fixture_codes()
-        missing = [code for code in ACME_CODES if code not in fixture_codes]
+        missing = [code for code in ACME_WALL_CODES if code not in fixture_codes]
         assert not missing, (
-            f"ACME_CODES has codes not found in the source spreadsheet: {missing}"
+            f"ACME_WALL_CODES has codes not found in the source spreadsheet: {missing}"
         )
 
     def test_every_hardcoded_description_matches_source_spreadsheet(self):
@@ -70,7 +79,7 @@ class TestHardcodedAcmeCodesMatchFixture:
         fixture_codes = _load_fixture_codes()
         mismatches = {
             code: {"hardcoded": desc, "source": fixture_codes[code]}
-            for code, desc in ACME_CODES.items()
+            for code, desc in ACME_WALL_CODES.items()
             if code in fixture_codes and desc.strip() != fixture_codes[code]
         }
         assert not mismatches, (
@@ -83,8 +92,11 @@ class TestHardcodedAcmeCodesMatchFixture:
         Curtain walls are B2010.40 in this system, not B2050.
 
         The line item itself ("Curtain wall assemblies") lives one level deeper than
-        ACME_CODES tracks, so confirm B2010.40 is the section it sits under.
+        the Level 3/4 codes tracked here, so confirm B2010.40 is the section it
+        sits under — and that B2050 is not in the WALL scope (it is, correctly,
+        in the full reference: the client does have exterior door codes).
         """
         fixture_codes = _load_fixture_codes()
         assert fixture_codes["B2010.40"] == "Fabricated Exterior Wall Assemblies"
-        assert "B2050" not in ACME_CODES
+        assert "B2050" not in ACME_WALL_CODES
+        assert ACME_CODES["B2050"] == "Exterior Doors and Grilles"

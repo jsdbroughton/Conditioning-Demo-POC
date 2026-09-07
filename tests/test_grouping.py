@@ -22,6 +22,7 @@ def _wall(
     assembly_code: str | None = None,
     type_mark: str = "",
     fire_rating: str = "",
+    height_mm: float = 0.0,
 ) -> WallRecord:
     """Build a WallRecord with only the fields grouping reads."""
     return WallRecord(
@@ -36,12 +37,23 @@ def _wall(
         level="LEVEL 01",
         assembly_code=assembly_code,
         fire_rating=fire_rating,
+        height_mm=height_mm,
     )
 
 
 def _grouped(walls):
-    """Run the real prediction + grouping pipeline over `walls`."""
-    return assign_type_groups(walls, predict_codes(walls))
+    """Run the real prediction + grouping pipeline over `walls`.
+
+    2026-09-07 (later still): assign_type_groups() returns
+    (assignments, all_groups) now that grouping is a three-tier hierarchy
+    (see grouping.py) — assignments (per-wall, always the `full` tier) is
+    what every existing test here was already written against, so this
+    helper keeps returning that and drops all_groups. Tests specifically
+    exercising the tier hierarchy (coarse/fire_acoustic rows, parent_key)
+    call assign_type_groups() directly instead — see
+    TestGroupingHasThreeTiers below.
+    """
+    return assign_type_groups(walls, predict_codes(walls))[0]
 
 
 class TestGroupsFormByResemblance:
@@ -214,13 +226,19 @@ class TestGroupDescriptionAndRollups:
         assert group.wall_tags == frozenset({"L3", "L6"})
         assert "Type Mark varies (L3, L6)" in group.description
 
-    def test_fire_rating_can_vary_within_a_group_even_when_tag_does_not(self):
-        """Fire rating can vary within a group even when tag does not.
+    def test_fire_rating_now_splits_the_group_even_when_the_name_is_near_identical(
+        self,
+    ):
+        """Fire Rating is a hard split, not just a rollup (2026-09-07).
 
-        This is the exact case grouping.py's "What this cannot do" note
-        warns about — SMOKE vs NFR is a one-token difference a similarity
-        cluster cannot reliably split on. The rollup must surface that span
-        rather than imply the group agrees on a rating it doesn't.
+        This used to be the exact case grouping.py's "what this cannot do"
+        note warned about — SMOKE vs NFR is a one-token difference a
+        similarity cluster cannot reliably split on by name alone — and the
+        rollup used to just report the resulting span. Per the Ken/Mike
+        transcript the estimators price these two differently, so
+        assign_type_groups() now partitions by (Fire Rating, Acoustic STC)
+        BEFORE running name similarity: these two near-identical names must
+        land in different groups, each internally consistent.
         """
         walls = [
             _wall(
@@ -236,10 +254,29 @@ class TestGroupDescriptionAndRollups:
                 fire_rating="SMOKE",
             ),
         ]
-        group = _grouped(walls)["a"]
-        assert group.wall_tags == frozenset({"H6"})
-        assert group.fire_ratings == frozenset({"NFR", "SMOKE"})
-        assert "Fire Rating varies (NFR, SMOKE)" in group.description
+        groups = _grouped(walls)
+        assert groups["a"].key != groups["b"].key
+        assert groups["a"].fire_ratings == frozenset({"NFR"})
+        assert groups["b"].fire_ratings == frozenset({"SMOKE"})
+
+    def test_acoustic_stc_also_splits_the_group(self):
+        """Acoustic STC is a hard split too, independently of Fire Rating."""
+        walls = [
+            _wall(
+                "a",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+            ),
+            _wall(
+                "b",
+                'Type H6 - Single Layer GWB - NFR - STC-45 - 6" Stud',
+                type_mark="H6",
+            ),
+        ]
+        groups = _grouped(walls)
+        assert groups["a"].key != groups["b"].key
+        assert groups["a"].stc_values == frozenset({"35"})
+        assert groups["b"].stc_values == frozenset({"45"})
 
     def test_group_with_nothing_recognised_says_so_plainly(self):
         """Group with nothing recognised says so plainly."""
@@ -250,8 +287,9 @@ class TestGroupDescriptionAndRollups:
         group = _grouped(walls)["a"]
         assert group.wall_tags == frozenset()
         assert group.fire_ratings == frozenset()
-        assert "no Type Mark, Fire Rating, STC or Stud Size recognised" in (
-            group.description
+        assert (
+            "no Type Mark, Fire Rating, STC, Stud Size or Height Band recognised"
+            in group.description
         )
 
     def test_description_leads_with_the_element_count(self):
@@ -264,16 +302,41 @@ class TestGroupDescriptionAndRollups:
         wall = _wall("a", "CW_Unitized_Spandrel", function="Curtain")
         assert _grouped([wall])["a"].description.startswith("1 element —")
 
-    def test_rollups_do_not_affect_which_group_a_wall_joins(self):
-        """Rollups do not affect which group a wall joins.
+    def test_wall_tag_rollup_does_not_affect_which_group_a_wall_joins(self):
+        """Type Mark stays a reported rollup, not a split key (2026-09-07).
 
-        Description/rollups are reporting only — grouping.py's 2026-09-07
-        note is explicit that Type Mark/Fire Rating must never become an
-        input to clustering. Two differently-tagged, differently-rated
-        walls whose names are otherwise near-identical still land in one
-        group (the same pairing test_a_group_spanning_several_wall_tags_...
-        and test_fire_rating_can_vary_... use) — proven here by asserting
-        _group_similarity itself never sees a wall_tag/fire_rating argument.
+        Unlike Fire Rating/Acoustic STC (see TestGroupDescriptionAndRollups'
+        fire-rating/STC split tests above), Type Mark is just an identifier
+        — the transcript's cost-differentiation ask names fire rating and
+        acoustics specifically, not tag. Two differently-tagged walls that
+        agree on fire rating/STC and are otherwise near-identical still
+        land in one group (the real Furring K1-L6 cluster this mirrors —
+        see test_a_group_spanning_several_wall_tags_reports_all_of_them).
+        """
+        walls = [
+            _wall(
+                "a",
+                'Type L3 - Furring - Single Sided GWB - NFR - STC-NA - 3-5/8" Stud',
+                type_mark="L3",
+            ),
+            _wall(
+                "b",
+                'Type L6 - Furring - Single Sided GWB - NFR - STC-NA - 6" Stud',
+                type_mark="L6",
+            ),
+        ]
+        groups = _grouped(walls)
+        assert groups["a"].key == groups["b"].key
+        assert groups["a"].wall_tags == frozenset({"L3", "L6"})
+
+    def test_similarity_scoring_itself_stays_type_name_token_only(self):
+        """_group_similarity never sees a wall_tag/fire_rating argument.
+
+        The (Fire Rating, Acoustic STC) split happens as a separate
+        partition BEFORE similarity clustering runs (see
+        assign_type_groups) — not by teaching the scorer itself about
+        attributes, which would make it a different, harder-to-reason-about
+        function. This pins that boundary.
         """
         import inspect
 
@@ -281,7 +344,138 @@ class TestGroupDescriptionAndRollups:
 
         params = list(inspect.signature(_group_similarity).parameters)
         assert params == ["a", "b"], (
-            "similarity scoring must stay type-name-token-only — adding a "
-            "wall_tag/fire_rating parameter here would make the rollup an "
-            "input to clustering, not just a report on it"
+            "similarity scoring must stay type-name-token-only — the Fire "
+            "Rating/Acoustic STC split belongs in assign_type_groups' "
+            "pre-partitioning step, not folded into the scorer itself"
         )
+
+
+class TestGroupingHasThreeTiers:
+    """assign_type_groups() returns a coarse/fire_acoustic/full hierarchy.
+
+    2026-09-07 (later still): a flat (fire_rating, stc) hard split forced
+    every consumer onto one granularity. This asks the direct question —
+    "the inferred groups can be more or less coarse" — by exposing all
+    three tiers rather than picking one. See grouping.py's module docstring
+    and TypeGroup's own docstring for the shape.
+    """
+
+    def test_uniform_coarse_cluster_produces_no_finer_rows(self):
+        """A coarse cluster already uniform on fire/stc/height gains no sub-rows.
+
+        Same two walls as test_wall_tag_rollup_does_not_affect_which_group_a
+        _wall_joins above (agree on Fire Rating and STC, no height
+        recorded) — nothing here should manufacture a fire_acoustic or full
+        row that just duplicates the coarse one.
+        """
+        walls = [
+            _wall(
+                "a",
+                'Type L3 - Furring - Single Sided GWB - NFR - STC-NA - 3-5/8" Stud',
+                type_mark="L3",
+            ),
+            _wall(
+                "b",
+                'Type L6 - Furring - Single Sided GWB - NFR - STC-NA - 6" Stud',
+                type_mark="L6",
+            ),
+        ]
+        assignments, all_groups = assign_type_groups(walls, predict_codes(walls))
+        tiers = {g.tier for g in all_groups}
+        assert tiers == {"coarse"}
+        coarse = next(g for g in all_groups if g.tier == "coarse")
+        # The per-wall assignment is still nominally "full" tier, but its
+        # key is identical to the coarse row's — no split happened, so
+        # there's nothing distinct to point to.
+        assert assignments["a"].key == coarse.key == assignments["b"].key
+        assert assignments["a"].coarse_key == coarse.key
+        assert assignments["a"].fire_acoustic_key == coarse.key
+
+    def test_fire_acoustic_split_produces_a_fire_acoustic_row_and_a_coarse_parent(self):
+        """A coarse cluster spanning two fire ratings gains fire_acoustic rows.
+
+        Mirrors test_fire_rating_now_splits_the_group_even_when_the_name_is
+        _near_identical above, but checks the tier structure rather than
+        just the per-wall key.
+        """
+        walls = [
+            _wall(
+                "a",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+                fire_rating="",
+            ),
+            _wall(
+                "b",
+                'Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud',
+                type_mark="H6",
+                fire_rating="SMOKE",
+            ),
+        ]
+        assignments, all_groups = assign_type_groups(walls, predict_codes(walls))
+        coarse = [g for g in all_groups if g.tier == "coarse"]
+        fire_acoustic = [g for g in all_groups if g.tier == "fire_acoustic"]
+        assert len(coarse) == 1
+        assert len(fire_acoustic) == 2
+        assert {g.parent_key for g in fire_acoustic} == {coarse[0].key}
+        # No height was recorded on either wall, so the full tier adds
+        # nothing beyond the fire_acoustic split — no `full`-tier row.
+        assert not [g for g in all_groups if g.tier == "full"]
+        assert assignments["a"].key == assignments["a"].fire_acoustic_key
+        assert assignments["a"].coarse_key == coarse[0].key
+
+    def test_height_band_splits_further_within_a_fire_acoustic_slice(self):
+        """Walls sharing fire/stc but at very different heights split at full tier."""
+        walls = [
+            _wall(
+                "a",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+                height_mm=1000.0,  # well under the 4' short-band threshold
+            ),
+            _wall(
+                "b",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+                height_mm=7000.0,  # over the 6m tall-band threshold
+            ),
+        ]
+        assignments, all_groups = assign_type_groups(walls, predict_codes(walls))
+        assert assignments["a"].key != assignments["b"].key
+        assert assignments["a"].height_bands == frozenset({"short (<4')"})
+        assert assignments["b"].height_bands == frozenset({"tall (>6m)"})
+        full_rows = [g for g in all_groups if g.tier == "full"]
+        assert len(full_rows) == 2
+        # No fire/acoustic split happened (both NFR/STC-35), so the full
+        # rows' parent is the coarse cluster directly, not a fire_acoustic
+        # row that was never created.
+        coarse_key = next(g.key for g in all_groups if g.tier == "coarse")
+        assert {g.parent_key for g in full_rows} == {coarse_key}
+        assert not [g for g in all_groups if g.tier == "fire_acoustic"]
+
+    def test_standard_height_band_does_not_split_ordinary_floor_to_floor_walls(self):
+        """Two walls at ordinary, different-but-both-'standard' heights stay one group.
+
+        The bands are coarse on purpose — the point is to catch a real
+        assembly-cost threshold (short kneewalls, tall double-height
+        walls), not to fragment every few inches of floor-to-floor
+        variation the way raw height would (see attributes.py).
+        """
+        walls = [
+            _wall(
+                "a",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+                height_mm=3000.0,
+            ),
+            _wall(
+                "b",
+                'Type H6 - Single Layer GWB - NFR - STC-35 - 6" Stud',
+                type_mark="H6",
+                height_mm=4200.0,
+            ),
+        ]
+        assignments, all_groups = assign_type_groups(walls, predict_codes(walls))
+        assert assignments["a"].key == assignments["b"].key
+        assert assignments["a"].height_bands == frozenset({"standard"})
+        assert not [g for g in all_groups if g.tier in ("fire_acoustic", "full")]

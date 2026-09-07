@@ -74,6 +74,19 @@ writing any of this, rather than assumed:
     a type name would silently share one cached height). It's bucketed
     by the separate, uncached `bucket_height_ft()` below and reported
     alongside `TypeAttributes`, never inside it.
+
+2026-09-07 (later still) — height reinstated as a grouping input, banded not raw
+----------------------------------------------------------------------------------
+The note above rejected height as a grouping input on the strength of it
+being continuous/per-instance. That argument stands against RAW height as a
+group identity, but doesn't mean height is cost-irrelevant — a wall's
+height can cross real assembly thresholds (stud gauge, bracing) the same
+way Fire Rating and Acoustic STC do. See `height_band()` below: an
+opinionated, explicitly-labelled-as-such three-band split (short / standard
+/ tall) used by grouping.py as a third hard-split dimension alongside Fire
+Rating and Acoustic STC. Still no `TypeAttributes` field, and still
+uncached by type name, for the same reason as `bucket_height_ft()` — height
+is genuinely per-instance, banding it doesn't change that.
 """
 
 from __future__ import annotations
@@ -286,3 +299,59 @@ def bucket_height_ft(
     if bucketed == int(bucketed):
         return f"{int(bucketed)}'"
     return f"{bucketed:g}'"
+
+
+# ---------------------------------------------------------------------------
+# Height band — a hard-split grouping dimension, not just a report bucket.
+# ---------------------------------------------------------------------------
+#
+# 2026-09-07 (later still): reinstated as a grouping input after being
+# rejected outright above. The rejection above was only ever an argument
+# against RAW height as a group identity (continuous, ~38 distinct values
+# per Type Mark on the Podium model — using it directly would fragment a
+# type into dozens of pivot rows for no reason connected to cost). It was
+# not, on reflection, an argument that height doesn't affect cost — it can,
+# independent of the takeoff quantity (area) already capturing "more wall,
+# more cost": interior stud partitions commonly cross real assembly
+# thresholds as they get taller — a gauge upsize, added intermediate
+# bracing or blocking — the same shape of problem Fire Rating and Acoustic
+# STC are, a categorical cost driver hiding inside a field that looks
+# continuous.
+#
+# No follow-up call was available to confirm Turner's own thresholds, so
+# these are a deliberately OPINIONATED stand-in — ordinary construction
+# practice, not a number measured against this client's pricing — chosen to
+# unblock delivery rather than wait on one. This needs owning explicitly as
+# an assumption, the same discipline as GROUP_SIMILARITY_THRESHOLD and
+# HEIGHT_BUCKET_FT above: three bands, "short" below 4' (kneewalls, curbs,
+# low partitions that skip full-height studs and bracing entirely),
+# "standard" from 4' up to 6m/~19'8" (ordinary floor-to-floor walls — the
+# overwhelming majority of any interiors model), and "tall" above 6m
+# (double-height spaces, cores, atria — where an interior stud wall
+# typically needs a heavier gauge and/or intermediate bracing). Correct
+# these two constants the moment Turner's own thresholds are known; nothing
+# else in grouping.py needs to change to pick up a different value.
+#
+# A wall with no recorded height returns None, not a default band — same
+# rule fire_rating/stc already follow (see grouping.assign_type_groups):
+# absence of data is not a contradiction, so two heightless walls still
+# slice together rather than being forced into an arbitrary band.
+HEIGHT_BAND_SHORT_MAX_MM = 4 * _MM_PER_FT  # 4'
+HEIGHT_BAND_TALL_MIN_MM = 6000.0  # 6m (~19'8")
+
+
+def height_band(height_mm: float) -> str | None:
+    """Bucket a wall's Unconnected Height into short / standard / tall.
+
+    See the module-level comment above for what these bands are, and that
+    they are an owned assumption pending Turner's own confirmation, not a
+    measured fact. Returns None for a wall with no height recorded — see
+    bucket_height_ft for the same convention.
+    """
+    if not height_mm or height_mm <= 0:
+        return None
+    if height_mm < HEIGHT_BAND_SHORT_MAX_MM:
+        return "short (<4')"
+    if height_mm > HEIGHT_BAND_TALL_MIN_MM:
+        return "tall (>6m)"
+    return "standard"

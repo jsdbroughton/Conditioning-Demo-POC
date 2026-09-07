@@ -55,9 +55,18 @@ On every triggered version, the function:
 5. Reads **fire rating, wall tag, height, acoustic rating and stud size**
    for each wall. Fire rating and wall tag prefer the wall's own Revit
    parameters (`Fire Rating`, `Type Mark` — verified 2026-09-07 against live
-   Turner models) and fall back to the element type name only where the
-   parameter is blank; acoustic rating and stud size still come from the
-   type name (a type called
+   Turner models). All Revit parameter reads — including `Function`,
+   `Assembly Code`, `Width` and `Unconnected Height` — go through
+   `walls._param()`/`_param_double()`, which try both the
+   `Parameters.Instance Parameters.<Group>.<Param>` and
+   `Parameters.Type Parameters.<Group>.<Param>` fully-qualified paths this
+   connector's bundle export actually uses; a bare `<Group>.<Param>` path
+   never matches either table and silently returns nothing (fixed
+   2026-09-07 — see `docs/NOTES.md`, this had been quietly sending every
+   interior wall through the "no signal" fallback and onto an exterior-wall
+   code). Fire rating and wall tag fall back to the element type name only
+   where the parameter is blank; acoustic rating and stud size still come
+   from the type name (a type called
    `Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud` yields
    `SMOKE · STC-35 · 6" Stud`). Height is read per-instance from
    `Unconnected Height` and rounded to the nearest foot, so two walls at
@@ -67,17 +76,44 @@ On every triggered version, the function:
    each run reports its own coverage so you can tell which case you're in.
    See `attributes.py`.
 6. **Groups similar element types** within each Level 4 code, so a code
-   covering thousands of walls breaks into recognisable families. This is
-   what serves models whose type names carry no convention at all
-   (`CW_Unitized_Spandrel`, `CW1D`, `20d panel`). Each group also reports a
-   plain-English **description** and, where present, the distinct Type
-   Marks / Fire Ratings / Acoustic STC / Stud Sizes its members actually
-   carry — one value where the group agrees, `varies (...)` listing every
-   value where it doesn't (a real cluster of near-identical type names has
-   been seen spanning six different Type Marks, so "varies" is the norm for
-   a large group, not an edge case). Groups are our observation, not a
-   classification, and Type Mark cannot become a group's *identity* for the
-   same reason — see the caveat in "Output" below and `grouping.py`.
+   covering thousands of walls breaks into recognisable families — at
+   **three granularities**, not one, because a group can honestly be more
+   or less coarse depending on the question being asked:
+   - **Coarse** — pure type-name similarity, deliberately blind to fire
+     rating, acoustic rating and height. Answers "which architect types
+     basically resemble each other at all." Can span a fire-rating or
+     acoustic boundary — see "What this cannot do" below — which is exactly
+     why the finer tiers exist rather than a reason to drop this one.
+   - **Fire/Acoustic** — each coarse cluster re-partitioned by (Fire
+     Rating, Acoustic STC), because the estimators who cost these groups
+     need those two to come out as different costs, and name-similarity
+     alone cannot guarantee that.
+   - **Full** — each Fire/Acoustic slice re-partitioned again by a
+     **height band** (short: under 4'; standard: 4' up to 6m/~19'8"; tall:
+     over 6m). This is an **opinionated, unvalidated-against-Turner's-own-
+     pricing** stand-in for where an interior stud wall typically needs a
+     heavier gauge or added bracing — picked to unblock delivery without a
+     follow-up call, not measured against this client's numbers. Correct
+     `attributes.HEIGHT_BAND_SHORT_MAX_MM`/`HEIGHT_BAND_TALL_MIN_MM` the
+     moment real thresholds are known.
+
+   A finer tier only grows a row distinct from its parent where that tier's
+   split actually found more than one value — a coarse cluster already
+   uniform on fire/acoustic/height never gains a meaningless sub-row, so a
+   wall's key stays as coarse as it honestly can. Within any tier,
+   remaining type-name variation is still what serves models whose naming
+   carries no other convention at all (`CW_Unitized_Spandrel`, `CW1D`,
+   `20d panel`). Every row also reports a plain-English **description**
+   and, where present, the distinct Type Marks / Stud Sizes its members
+   carry — one value where the row's members agree, `varies (...)` listing
+   every value where they don't (a real cluster of near-identical type
+   names has been seen spanning six different Type Marks, so "varies" is
+   the norm for Type Mark/Stud Size on a large group, not an edge case —
+   Fire Rating, Acoustic STC and Height Band, by contrast, are guaranteed
+   uniform on a **Full**-tier row by construction; "varies" on any of those
+   three can only appear on a coarser row). Groups are our observation, not
+   a classification, and Type Mark cannot become a group's *identity* for
+   the same reason — see the caveat in "Output" below and `grouping.py`.
 7. Records, on every element, **whether the model authored the code or the
    function derived it** (`Requires Verification`), and in plain terms
    **what evidence it was derived from** (`Level 4 Code Source`).
@@ -110,15 +146,61 @@ On every triggered version, the function:
 ### Output
 
 A single namespaced property (default key `Conditioned UF Code` — see "Using
-this function" below) written onto every wall object in a new version pushed
-to `Conditioned/<source model name>`. Everything goes in that one dict:
-one place to look in the viewer, one thing to select in Power BI, and no
-chance of colliding with a real Revit parameter name.
+this function" below) written onto every wall object. Everything goes in
+that one dict: one place to look in the viewer, one thing to select in Power
+BI, and no chance of colliding with a real Revit parameter name.
+
+That property lands in **two** new versions per run, published from the same
+`create_conditioned_version()` call (2026-09-07, later still) — check either
+independently, since one can publish without the other:
+
+- **`Conditioned/Walls/<source model name>`** — every conditioned wall and curtain-wall/
+  curtain-panel element, nothing else. Smaller and faster to open when the
+  only question is what conditioning did to the walls.
+- **`Conditioned/All/<source model name>`** — a genuine like-for-like republish of the
+  *entire* received scene (doors, floors, rooms, MEP, stairs, everything),
+  with each conditioned wall's result patched onto its own properties and
+  the original collection hierarchy, level, material and color carried over.
+  This is the one that looks like the source model, not a walls-only subset
+  of it — added because the walls-only model, for a while the only output,
+  read as data loss to a reviewer opening it directly rather than through
+  the run report's merged viewer. Geometry is copied structurally
+  (definitions and placements rebuilt, not flattened — the first cut put
+  every instanced door/panel/equipment item at the origin). Every object
+  the function did *not* classify carries the same namespaced property
+  with either a derived code or `Status: not conditioned` — so nothing in
+  this model is silently blank. Non-wall objects are coded by the
+  **category engine** (`categories.py`): the wall engine's own mechanism —
+  every independent signal collected (Revit category, `Function`, the
+  `Function` of the wall a door or window is hosted in, a type-name keyword,
+  the section of any existing Assembly Code, and the nearest already-coded
+  neighbour of the same category), strongest decides,
+  agreement lifts confidence and contradiction lowers it, same constants —
+  applied to a per-category rule table. **That table is a set of judgements
+  made without the estimator** (same status as the height bands); every
+  result carries `Requires Verification: True` and a plain-English source,
+  and the report says so up front. Sub-elements (railing supports,
+  handrails, top rails, nested door families such as an ADA clearance) are
+  `Status: component` — no Level 4 Code of their own, the parent's code
+  noted under `Parent Level 4 Code` — so they never inflate a count;
+  clearance/annotation families are never classified even standalone.
+  Categories with no rule, or where no signal fires (Generic Models,
+  unrecognised Mechanical Equipment, a Door with no Function of its own or
+  its host wall's and no telling name), stay `not conditioned` rather than
+  guessed — and non-physical categories (Rooms, Areas, Levels, Grids,
+  separation lines) say plainly that no cost code applies. Codes come from `acme_reference.py` — the client's full
+  structure, 679 codes generated from the fixture spreadsheet. Host/room/connection/assembly
+  relationships are not carried over (see `_build_full_bundle()`'s
+  docstring in `speckle_io.py`).
+
+The run report's "View Results" viewer loads both, overlaid on the host
+model, via `set_context_view`.
 
 | Key | On | Meaning |
 |-----|-----|---------|
-| `Status` | all | `existing` (model already had a valid code) or `predicted` |
+| `Status` | all | `existing` (model already had a valid code), `predicted`, or — on non-wall objects in `Conditioned/All/…` — `component` (a sub-element priced with its parent; carries `Parent Level 4 Code` and no `Level 4 Code`) or `not conditioned` (nothing could place it) |
 | `Level 4 Code` | all | The code the element ends up carrying |
+| `Level 4 Code Description` | all | ACME's own description text for that code, straight from the Estimate Detail Structure (e.g. `Exterior Wall Veneer`) |
 | `Level 4 Code Source` | all | Plain English: authored by the model, or derived by the function and from what evidence |
 | `Requires Verification` | all | `False` only where the model authored a valid code — today `True` on everything |
 | `Tier` | all | Tier 0–3, see above |
@@ -130,22 +212,30 @@ chance of colliding with a real Revit parameter name.
 | `Observed Fire Rating Source` | where a fire rating is present | `parameter` or `name` — which one it was read from |
 | `Observed Wall Tag` | where the wall has a Type Mark | The wall's own `Type Mark`, e.g. `H6` |
 | `Observed Height` | where the wall has an `Unconnected Height` | Rounded to the nearest foot, e.g. `10'` — a per-instance value, not part of `Observed Type Attributes` |
-| `Inferred Type Group` | all | e.g. `C1010.10 · inferred group A` |
-| `Inferred Group Label` / `Inferred Group Size` | all | What the group's members share, and how many elements |
-| `Inferred Group Description` | all | Plain-English rollup, e.g. `80 elements — Type Mark varies (K1, L3, L6), Fire Rating NFR, ...` |
-| `Inferred Group Wall Tags` / `Fire Ratings` / `Acoustic STC` / `Stud Sizes` | where the group has any | Comma-joined distinct values across the group's members — one value where they agree, several where they don't |
+| `Observed Height Band` | where the wall has an `Unconnected Height` | `short (<4')`, `standard`, or `tall (>6m)` — the same height read as the band the `Full`-tier group hard-splits on, see `attributes.height_band` |
+| `Inferred Type Group (Fine Grained)` | all | The **Full**-tier group — the most specific of the three, e.g. `C1010.10 · inferred group A2a`. This is the group actually guaranteed never to mix two differently fire-rated, differently-acoustic-rated or differently-heighted walls |
+| `Inferred Group Label (Fine Grained)` / `Inferred Group Size` | all | What the Full-tier group's members share, and how many elements |
+| `Inferred Type Group (Coarse)` / `Inferred Group Label (Coarse)` | all | The same wall's **Coarse**-tier group — pure name similarity, e.g. `C1010.10 · inferred group A` — for rolling up to "which architect types basically resemble each other" regardless of fire/acoustic/height |
+| `Inferred Type Group (Fire/Acoustic)` / `Inferred Group Label (Fire/Acoustic)` | all | The same wall's **Fire/Acoustic**-tier group, e.g. `C1010.10 · inferred group A2` — Coarse re-split by (Fire Rating, Acoustic STC) only, before height |
+| `Inferred Group Description` | all | Plain-English rollup for the Full-tier group, e.g. `5 elements — Type Mark H6, Fire Rating SMOKE, Acoustic STC 35, Stud Size 6, Height Band standard` |
+| `Inferred Group Wall Tags` / `Fire Ratings` / `Acoustic STC` / `Stud Sizes` / `Height Bands` | where the group has any | Comma-joined distinct values across the Full-tier group's members. Wall Tags and Stud Sizes can list several values where members don't agree; Fire Ratings, Acoustic STC and Height Bands are hard-split (2026-09-07 and 2026-09-07 later still), so each of those three always reports exactly one value at this tier — "varies" on any of them is only possible reading the Coarse or Fire/Acoustic keys instead |
 
 **`Observed` and `Inferred` mean different things, deliberately.**
 *Observed* values are read from the wall itself — from a real Revit
 parameter where one exists (`Fire Rating`, `Type Mark`; `Observed Fire
 Rating Source` records which), or transcribed from the architect's own
 type name where it doesn't. *Inferred* values are the function's judgement
-about which elements resemble each other, and that judgement is known to be
-capable of spanning a fire-rating or Type Mark boundary (see `grouping.py`)
-— which is exactly what the `Inferred Group *` rollups report rather than
-hide. Neither is a client classification, neither carries any authority,
-and the A/B/C letters in a group key are ours — assigned by size, and they
-renumber when the model changes.
+about which elements resemble each other, at whichever of the three
+granularities you read — `Inferred Type Group (Coarse)` is judgement that
+can span a Fire Rating, Acoustic STC, Height Band, Type Mark or Stud Size
+boundary all at once (it's blind to all five); `(Fire/Acoustic)` still
+spans Type Mark, Stud Size and Height Band but never Fire Rating/Acoustic
+STC; `Inferred Type Group (Fine Grained)` (Full) never spans any of Fire
+Rating, Acoustic STC or Height Band, only Type Mark/Stud Size — which is
+exactly what its `Inferred Group *` rollups report ("varies (...)") rather
+than hide. Neither `Observed` nor `Inferred` is a client classification,
+neither carries any authority, and the letters/digits in a group key are
+ours — assigned by size, and they renumber when the model changes.
 
 **Nothing here involves a trained model or any AI service.** The function is
 rules over Revit parameters plus a text comparison between elements. No data
@@ -217,14 +307,21 @@ src/conditioning/
   predict.py                  — Prediction engine: similarity match + heuristic fallback
   attributes.py               — Fire rating / wall tag (parameter-first, name fallback) / STC /
                                  stud size / height bucketing
-  grouping.py                 — Clusters similar element types within each Level 4 code, plus
-                                 each group's description and Type Mark/Fire Rating/etc. rollups
+  grouping.py                 — Clusters similar element types within each Level 4 code, as a
+                                 3-tier hierarchy (coarse name-similarity -> +fire/acoustic
+                                 -> +height band), plus each row's description and rollups
+  categories.py               — Level 4 codes for every non-wall category: the wall engine's
+                                 corroborate/conflict mechanism over a per-category rule table
+                                 (unreviewed judgements — see its docstring)
+  acme_reference.py           — GENERATED: the client's full 679-code structure, from fixtures/
   report.py                   — Markdown conditioning report builder
   speckle_io.py                — Everything that writes back to Speckle (imprint/annotate/version)
   instrumentation.py          — Per-stage timing and peak-RSS logging
 tests/                        — Offline unit tests (no live Speckle calls; hand-rolled fakes)
   conftest.py                 — --code-property-name option for the live integration run
-fixtures/                     — Source Uniformat spreadsheet (guards ACME_CODES against drift)
+fixtures/                     — Source Uniformat spreadsheet; acme_reference.py is generated
+                                 from it (scripts/regenerate_acme_reference.py) and the
+                                 fixture test guards both it and ACME_WALL_CODES against drift
 docs/NOTES.md                 — Running development log — the detailed history of every design
                                  decision, bug found, and direction change on this project
 ```
@@ -307,8 +404,8 @@ spreadsheet and diffs it against the hardcoded `ACME_CODES` dict in
 
 The other exception is real, not in spirit: `tests/test_function.py` makes
 an actual live run against whatever project/model/token is configured in
-your `.env`, including writing a new `Conditioned/<model>` version. It's
-marked `integration` and excluded by the default `addopts` in
+your `.env`, including writing new `Conditioned/Walls/<model>` and `Conditioned/All/<model>`
+versions. It's marked `integration` and excluded by the default `addopts` in
 `pyproject.toml`, so a bare `pytest`/`pytest tests/` never touches your live
 project — run it deliberately with `pytest tests/ -m integration` when you
 want to exercise the real end-to-end path.

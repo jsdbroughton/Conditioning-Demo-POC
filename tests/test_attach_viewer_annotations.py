@@ -10,6 +10,13 @@ one", per codes.py) shouldn't require scrolling a big per-method table.
 attach_viewer_annotations() now also fires a dedicated, warning-level
 annotation for every Tier 3 prediction, grouped by predicted code and
 independent of which method produced it.
+
+2026-09-07: attach_viewer_annotations() now passes a _ResultRef (id ==
+applicationId == wall.object_id) to attach_info_to_objects/
+attach_warning_to_objects instead of `wall.obj` directly — a bundle
+ModelObject has no `.id` for AutomationContext to key its result dict on
+(see speckle_io.py's _ResultRef docstring). These tests check the ref's
+`.id`/`.applicationId` rather than identity against `wall.obj`.
 """
 
 from __future__ import annotations
@@ -17,11 +24,6 @@ from __future__ import annotations
 from conditioning.predict import predict_codes
 from conditioning.speckle_io import attach_viewer_annotations
 from conditioning.walls import WallRecord
-
-
-class _FakeSpeckleObject:
-    def __init__(self) -> None:
-        self.properties: dict = {}
 
 
 class _FakeAutomationContext:
@@ -59,11 +61,16 @@ class _FakeAutomationContext:
 
 def _wall(object_id: str, **overrides) -> WallRecord:
     defaults = dict(
-        obj=_FakeSpeckleObject(), category="Walls", type_name="", family="Basic Wall",
+        obj=None, category="Walls", type_name="", family="Basic Wall",
         function="", type_mark="", width_mm=200.0, level="LEVEL 01", assembly_code=None,
     )
     defaults.update(overrides)
     return WallRecord(object_id=object_id, **defaults)
+
+
+def _ids(objs) -> set[str]:
+    """The applicationIds a list of _ResultRef stand-ins was attached to."""
+    return {o.applicationId for o in objs}
 
 
 class TestTier3GetsAWarningLevelAnnotation:
@@ -88,7 +95,7 @@ class TestTier3GetsAWarningLevelAnnotation:
         assert len(ctx.warning_calls) == 1
         call = ctx.warning_calls[0]
         assert call["category"] == "Uniformat — Needs Review (Tier 3)"
-        assert call["objects"] == [wall.obj]
+        assert _ids(call["objects"]) == {"t3-1"}
         assert "Tier 3" in call["message"]
 
     def test_no_tier_3_predictions_means_no_warning_call(self):
