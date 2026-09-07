@@ -72,6 +72,21 @@ from conditioning.codes import (
 from conditioning.predict import _tokens
 from conditioning.walls import _param
 
+# Categories that are not physical construction and so can never carry a
+# cost code — the honest output for these is "not applicable", not "not yet".
+# Matched by lower-cased substring against the Revit category name.
+NON_PHYSICAL_CATEGORY_MARKERS = (
+    "room", "area", "space", "zone", "level", "grid", "separation",
+    "reference", "view", "sheet", "scope box", "matchline",
+)
+
+
+def is_non_physical(category: str | None) -> bool:
+    """True for Rooms, Areas, Levels, Grids, separation lines and the like."""
+    lower = (category or "").lower()
+    return any(marker in lower for marker in NON_PHYSICAL_CATEGORY_MARKERS)
+
+
 # Confidence for a category default whose Level 4 choice is a sound reading
 # within the right section rather than a determination — Tier 2 by design.
 DEFAULT_RULE_CONFIDENCE = 0.70
