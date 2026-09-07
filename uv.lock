@@ -28,15 +28,6 @@ wheels = [
 ]
 
 [[package]]
-name = "appdirs"
-version = "1.4.4"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d7/d8/05696357e0311f5b5c316d7b95f46c669dd9c15aaeecbb48c7d0aeb88c40/appdirs-1.4.4.tar.gz", hash = "sha256:7d5d0167b2b1ba821647616af46a749d1c653740dd0d2415100fe26e27afdf41", size = 13470, upload-time = "2020-05-11T07:59:51.037Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/3b/00/2344469e2084fb287c2e0b57b72910309874c3245463acd6cf5e3db69324/appdirs-1.4.4-py2.py3-none-any.whl", hash = "sha256:a841dacd6b99318a741b166adb07e19ee71a274450e68237b4650ca1055ab128", size = 9566, upload-time = "2020-05-11T07:59:49.499Z" },
-]
-
-[[package]]
 name = "ast-serialize"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -786,9 +777,14 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "ujson" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f0/7e/3fd04e1522c7e25ba2838cc8e9e28bfff4963568966d7fe44984242be405/specklepy-2026.8.1.tar.gz", hash = "sha256:d0d1c56b09b06b3f744879f7cf27b3495977cef010435f8850f4e1eb4d38263a", size = 104080, upload-time = "2026-08-26T13:14:50.929Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5a/d7/33eca95b5fd0663c70f9dacdb24fed1842805b4ba15ca35707aee3d9ea5a/specklepy-2026.9.0b3.tar.gz", hash = "sha256:dcc3688fa80f40a96e736306c677faf5cd7b96372ab4c7f09a1cec91412b4120", size = 155993, upload-time = "2026-09-01T11:22:59.249Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/e5/e3c192cb265702e4394f14f1dd444a1dc4ae385d07a8ef8c274c96daa4ee/specklepy-2026.8.1-py3-none-any.whl", hash = "sha256:1fd6e4709953195c29d07924fa6d23ae3e84f0aeb7081da5d3e664657d915577", size = 158252, upload-time = "2026-08-26T13:14:49.987Z" },
+    { url = "https://files.pythonhosted.org/packages/21/fd/25e0809024414ffc7dcfe65717fd43cd302d773577d34c63f69d94e5c984/specklepy-2026.9.0b3-py3-none-any.whl", hash = "sha256:5f08fa5e97b366b6126cd709c1d11b781f2c5f53e69599560f04a1495f6c8d60", size = 218628, upload-time = "2026-09-01T11:22:58.146Z" },
+]
+
+[package.optional-dependencies]
+bundle = [
+    { name = "pyarrow" },
 ]
 
 [[package]]
