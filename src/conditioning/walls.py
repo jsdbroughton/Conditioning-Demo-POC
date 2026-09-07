@@ -1,4 +1,4 @@
-"""Extract WallRecord data from Speckle DataObjects, and classify walls.
+"""Extract WallRecord data from Speckle bundle objects, and classify walls.
 
 Buckets a wall list into coded / level4 / non_level4_coded / uncoded.
 
@@ -10,48 +10,73 @@ curtain walls as a wall sub-type (B2010.40), so grouping them under one
 WallRecord model matches the target taxonomy, even though Revit models them
 as distinct categories from plain "Walls" — see TARGET_CATEGORIES below.
 
-Data structure verified against a live client shell model (2026-07-17):
-  - wall.category         → top-level str, e.g. "Walls", "Curtain Systems"
-  - wall.type             → top-level str, Revit type name
-  - wall.family            → top-level str, Revit family name
-  - wall.level            → top-level str, e.g. "LEVEL 01"
-  - Assembly Code         → properties["Parameters"]["Type Parameters"]
-                              ["Identity Data"]["Assembly Code"]["value"]
-  - Function              → properties["Parameters"]["Type Parameters"]
-                              ["Construction"]["Function"]["value"]
-  - Width (feet)          → properties["Parameters"]["Type Parameters"]
-                              ["Construction"]["Width"]["value"]
-  - Type Mark             → properties["Parameters"]["Type Parameters"]
-                              ["Identity Data"]["Type Mark"]["value"]
+2026-09-07: ported off the v3/JSON-object-graph reader onto specklepy
+2026.9's columnar bundle format (`operations.receive3` → a
+`specklepy.bundle.model.Model`, not a `Base` tree — see main.py and
+https://docs.speckle.systems/next/developers/sdks/python/breaking-changes).
+`wall_obj` below is a `specklepy.bundle.model.ModelObject`, not a Base/
+DataObject: there is no `.elements` tree to recurse, and Revit parameters are
+rows in a columnar property store read with `wall_obj.get_string(...)`/
+`get_double(...)`.
 
-Two more verified against the live UKHC Core/Podium/Tower models (2026-09-07,
-queried directly via the EAV property dataset rather than assumed — see the
-2026-09-07 NOTES.md entry for the full coverage numbers):
-  - Fire Rating (str)     → properties["Parameters"]["Type Parameters"]
-                              ["Identity Data"]["Fire Rating"]["value"]
-                              A Type Parameter, same group as Type Mark — so
-                              it's constant across every instance of one
-                              type, unlike height below. Populated only on
-                              rated/smoke walls in the models checked (22.9%
-                              - 92.8% of walls, varying by source file); a
-                              plain NFR partition simply carries no value —
-                              blank means "presumed non-rated by omission",
-                              not "unknown". See attributes.py for how the
-                              value is normalised and combined with the
-                              name-derived fallback.
-  - Unconnected Height (feet) → properties["Parameters"]
-                              ["Instance Parameters"]["Constraints"]
-                              ["Unconnected Height"]["value"]
-                              An Instance Parameter — genuinely per-element,
-                              not per-type. Measured on the Podium model: one
-                              Type Mark ("H6") alone carries 38 distinct
-                              heights from 1.0 ft to 23.1 ft. Never cache or
-                              key on this the way Type Mark/Fire Rating can
-                              be (see attributes.bucket_height_ft).
+CORRECTION (2026-09-07, later the same day): the first cut of this port
+called `get_string()`/`get_double()` with a bare "<Group>.<Param>" path (e.g.
+"Identity Data.Assembly Code", "Construction.Function") on the assumption —
+stated in specklepy's own docs — that the SDK searches instance scope, then
+type scope, then a root scalar, so a caller never has to say which scope a
+parameter lives in. That is wrong for what this Revit connector actually
+writes into the bundle. Confirmed by downloading the real
+`specklepy==2026.9.0b3` wheel and reading `ModelObject._typed()`: it DOES
+check the instance property table then the type property table, but both
+lookups use the exact same literal path string — there's no group-name
+normalisation between scopes. This connector's real stored paths are
+"Parameters.Instance Parameters.<Group>.<Param>" for instance-scope
+parameters and "Parameters.Type Parameters.<Group>.<Param>" for type-scope
+ones — never the bare "<Group>.<Param>" — so every one of this module's
+original path guesses missed on both scopes and silently returned None.
 
-No separate "Wall Tag" parameter exists in any of the three models checked —
-what Kevin/Mike referred to on the call as "wall tag" is Type Mark, already
-extracted above.
+Confirmed live and empirically (2026-09-07) via a diagnostic script run
+against the real "Walls/10386456_A_UKHC_Fitout_Tower.rvt" model
+(app.speckle.systems/projects/3eaeb15ff9, model e89b8d5a97, version
+bec8f561c0) that dumped every stored property path for several real walls
+and printed get_string()/get_double() against candidate paths directly —
+not inferred from the viewer UI alone. Root scalars (no "properties." prefix
+at all, and no "Parameters." segment) are unaffected by any of this:
+  - category, family, type, name, units, speckle_type → root scalars,
+    wall_obj.get_string("category") etc. — always worked, still do.
+  - level  → NOT a property at all; it's the ON_LEVEL relation
+             (wall_obj.level.name).
+
+Everything else needs the full scope-qualified path. `_param()`/
+`_param_double()` below try instance scope first (a genuine Revit instance
+override of an otherwise type-level parameter should win), then type scope,
+mirroring real Revit instance-vs-type parameter semantics rather than
+guessing which scope a given parameter lives in:
+  - Assembly Code       → Parameters.Type Parameters.Identity Data.Assembly Code
+                           (type-scoped on this connector — confirmed "C1010145"
+                           on a real wall; the ORIGINAL bare-path guess silently
+                           returned None for every wall in the model, meaning
+                           classify_walls() treated every already-legacy-coded
+                           wall as blank/uncoded and predict_codes()'s
+                           similarity reference pool was always empty)
+  - Type Mark           → Parameters.Type Parameters.Identity Data.Type Mark
+  - Fire Rating         → Parameters.Type Parameters.Identity Data.Fire Rating
+                           (confirmed "SMOKE" / "1HR/S" on real walls)
+  - Function            → Parameters.Type Parameters.Construction.Function
+                           (confirmed "Interior" on a real interior partition —
+                           this is the field predict._heuristic_signals leans on
+                           hardest; losing it silently is what pushed the bulk
+                           of one real model's interior walls into the
+                           `method="default"` blind-fallback bucket instead of
+                           C1010.x)
+  - Width               → Parameters.Type Parameters.Construction.Width (feet)
+  - Unconnected Height  → Parameters.Instance Parameters.Constraints.Unconnected
+                           Height (feet) — instance-scoped, not type-scoped,
+                           on this connector
+
+No separate "Wall Tag" parameter exists in any of the v3-era models checked
+pre-port — what Kevin/Mike referred to on the call as "wall tag" is
+Type Mark, already extracted above.
 """
 
 from __future__ import annotations
@@ -66,6 +91,31 @@ from conditioning.codes import (
 
 FEET_TO_MM = 304.8
 
+# Revit parameters live under one of these two scope prefixes in the bundle's
+# columnar property store — never as a bare "<Group>.<Param>" path (see
+# module docstring's 2026-09-07 correction). Instance is checked first so a
+# genuine per-instance override of an otherwise type-level parameter wins,
+# matching real Revit instance-vs-type semantics.
+_SCOPE_PREFIXES = ("Parameters.Instance Parameters.", "Parameters.Type Parameters.")
+
+
+def _param(wall_obj, group: str, name: str) -> str | None:
+    """Read a Revit parameter by group/name, trying instance scope then type scope."""
+    for prefix in _SCOPE_PREFIXES:
+        val = wall_obj.get_string(f"{prefix}{group}.{name}")
+        if val is not None:
+            return val
+    return None
+
+
+def _param_double(wall_obj, group: str, name: str) -> float | None:
+    """Read a numeric Revit parameter by group/name, instance scope then type scope."""
+    for prefix in _SCOPE_PREFIXES:
+        val = wall_obj.get_double(f"{prefix}{group}.{name}")
+        if val is not None:
+            return val
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -76,24 +126,36 @@ FEET_TO_MM = 304.8
 class WallRecord:
     """Extracted metadata for one Revit wall or curtain-wall-family element."""
 
-    obj: object             # the DataObject (Base subclass)
-    object_id: str          # wall.id
+    obj: object             # the specklepy.bundle.model.ModelObject (read-only)
+    object_id: str          # wall_obj.application_id — the only stable identity
+                             # a bundle object has (never a content-hash .id;
+                             # see main.py's module docstring)
     # "Walls" | "Curtain Systems" | "Curtain Panels" | "Curtain Wall Mullions"
     category: str
-    type_name: str          # wall.type
-    family: str             # wall.family
-    function: str           # Construction > Function param value
-    type_mark: str          # Identity Data > Type Mark param value
-    width_mm: float         # Construction > Width (feet) × 304.8
-    level: str              # wall.level (plain string in v3)
-    assembly_code: str | None  # Identity Data > Assembly Code; None if absent
+    type_name: str          # "type" General property
+    family: str             # "family" General property
+    function: str           # Construction.Function
+    type_mark: str          # Identity Data.Type Mark
+    width_mm: float         # Construction.Width (feet) × 304.8
+    level: str              # ON_LEVEL relation's level name ("" if unset)
+    assembly_code: str | None  # Identity Data.Assembly Code; None if absent
     # Both added 2026-09-07, after the client call asking for wall
     # sub-grouping to weigh in fire rating and height alongside wall tag
     # (type_mark, above) and family type name (type_name, above). Defaulted
     # so existing WallRecord(...) call sites — test fixtures included — don't
     # need updating just to keep constructing one.
-    fire_rating: str = ""   # Identity Data > Fire Rating (Type Parameters)
-    height_mm: float = 0.0  # Instance Params > Constraints > Unconnected Height × 304.8
+    fire_rating: str = ""   # Identity Data.Fire Rating
+    height_mm: float = 0.0  # Constraints.Unconnected Height × 304.8
+    # Set by speckle_io.imprint_predictions() — the conditioning payload for
+    # this wall (Status/Level 4 Code/Tier/... keyed under the run's
+    # code_property_name), or None until that pass runs. Added 2026-09-07
+    # alongside the bundle port: a ModelObject is a read-only view over the
+    # received parquet tables, so there is no live `obj.properties` dict left
+    # to mutate in place the way the old Base-tree DataObject allowed — the
+    # conditioning result has to be held somewhere else until
+    # create_conditioned_version() writes it into the fresh output bundle.
+    # See speckle_io.py's 2026-09-07 note for the full reasoning.
+    conditioning: dict | None = None
 
     @property
     def is_coded(self) -> bool:
@@ -152,63 +214,8 @@ def classify_walls(walls: list[WallRecord]) -> WallClassification:
 # ---------------------------------------------------------------------------
 
 
-def _type_params(wall_obj) -> dict:
-    """Return the Type Parameters dict from a wall's properties.
-
-    Reads properties["Parameters"]["Type Parameters"].
-    """
-    props = getattr(wall_obj, "properties", None)
-    if not props:
-        return {}
-    if isinstance(props, dict):
-        params = props.get("Parameters", {})
-    else:
-        params = getattr(props, "Parameters", {}) or {}
-    if isinstance(params, dict):
-        tp = params.get("Type Parameters", {})
-    else:
-        tp = getattr(params, "Type Parameters", {}) or {}
-    return tp if isinstance(tp, dict) else {}
-
-
-def _instance_params(wall_obj) -> dict:
-    """Return the Instance Parameters dict from a wall's properties.
-
-    Reads properties["Parameters"]["Instance Parameters"] — the sibling of
-    _type_params()'s "Type Parameters". Needed because Unconnected Height is
-    an instance-level Revit parameter (it varies per element, not per type —
-    see the module docstring and attributes.bucket_height_ft), so it lives
-    under a different top-level group than Fire Rating and Type Mark.
-    """
-    props = getattr(wall_obj, "properties", None)
-    if not props:
-        return {}
-    if isinstance(props, dict):
-        params = props.get("Parameters", {})
-    else:
-        params = getattr(props, "Parameters", {}) or {}
-    if isinstance(params, dict):
-        ip = params.get("Instance Parameters", {})
-    else:
-        ip = getattr(params, "Instance Parameters", {}) or {}
-    return ip if isinstance(ip, dict) else {}
-
-
-def _pval(group: dict, name: str):
-    """Pull the .value out of a parameter entry in a group dict."""
-    entry = group.get(name) if isinstance(group, dict) else None
-    if entry is None:
-        return None
-    return entry.get(
-        "value") if isinstance(entry,
-        dict) else getattr(entry,
-        "value",
-        None,
-    )
-
-
 def get_assembly_code(wall_obj) -> str | None:
-    """Extract Assembly Code from Identity Data > Type Parameters, or None.
+    """Extract Assembly Code from the Identity Data parameter group, or None.
 
     Uppercased on the way in — LEVEL4_PATTERN/ASTM_CODE_PATTERN only match an
     uppercase leading letter, so a code authored lowercase (e.g. a fat-
@@ -223,8 +230,7 @@ def get_assembly_code(wall_obj) -> str | None:
     is treated as already-coded Level 4 rather than needing upgrade.
     ASTM Uniformat II codes (3-digit suffix, e.g. 'B2010160') are NOT affected.
     """
-    identity = _type_params(wall_obj).get("Identity Data", {})
-    val = _pval(identity, "Assembly Code")
+    val = _param(wall_obj, "Identity Data", "Assembly Code")
     if not val:
         return None
     raw = str(val).strip().upper()
@@ -234,33 +240,24 @@ def get_assembly_code(wall_obj) -> str | None:
 
 
 def get_wall_metadata(wall_obj) -> dict:
-    """Extract all fingerprinting fields from a wall DataObject."""
-    # Core identity is on top-level attributes (confirmed in v3 connector data)
-    type_name = str(getattr(wall_obj, "type",   "") or "").strip()
-    family    = str(getattr(wall_obj, "family", "") or "").strip()
-    level     = str(getattr(wall_obj, "level",  "") or "").strip()
+    """Extract all fingerprinting fields from a wall's bundle object."""
+    # Root-scope "General" properties — confirmed live, see module docstring.
+    type_name = str(wall_obj.get_string("type")   or "").strip()
+    family    = str(wall_obj.get_string("family") or "").strip()
 
-    tp           = _type_params(wall_obj)
-    identity     = tp.get("Identity Data", {})
-    construction = tp.get("Construction", {})
+    # ON_LEVEL relation, not a property — see module docstring. wall_obj.level
+    # is a ModelLevel | None; absent for anything not level-hosted.
+    level = wall_obj.level.name if wall_obj.level and wall_obj.level.name else ""
 
-    function     = str(_pval(construction, "Function")     or "").strip()
-    type_mark    = str(_pval(identity,     "Type Mark")    or "").strip()
-    fire_rating  = str(_pval(identity,     "Fire Rating")  or "").strip()
+    function    = str(_param(wall_obj, "Construction", "Function")     or "").strip()
+    type_mark   = str(_param(wall_obj, "Identity Data", "Type Mark")   or "").strip()
+    fire_rating = str(_param(wall_obj, "Identity Data", "Fire Rating") or "").strip()
 
-    width_raw = _pval(construction, "Width") or 0.0
-    try:
-        width_mm = float(width_raw) * FEET_TO_MM
-    except (TypeError, ValueError):
-        width_mm = 0.0
+    width_ft = _param_double(wall_obj, "Construction", "Width")
+    width_mm = (width_ft or 0.0) * FEET_TO_MM
 
-    # Instance Parameters, not Type Parameters — see _instance_params().
-    constraints = _instance_params(wall_obj).get("Constraints", {})
-    height_raw = _pval(constraints, "Unconnected Height") or 0.0
-    try:
-        height_mm = float(height_raw) * FEET_TO_MM
-    except (TypeError, ValueError):
-        height_mm = 0.0
+    height_ft = _param_double(wall_obj, "Constraints", "Unconnected Height")
+    height_mm = (height_ft or 0.0) * FEET_TO_MM
 
     return {
         "type_name":    type_name,
@@ -275,30 +272,14 @@ def get_wall_metadata(wall_obj) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Wall traversal
+# Wall collection
 # ---------------------------------------------------------------------------
 
 
-def _get_category(obj) -> str | None:
-    """Get category from a Speckle object, trying multiple access patterns."""
-    # 1. Top-level attribute (confirmed in viewer: RevitObject has .category)
-    cat = getattr(obj, "category", None)
-    if cat:
-        return str(cat)
-    # 2. Dict-style access (Base dynamic properties)
-    try:
-        cat = obj["category"]
-        if cat:
-            return str(cat)
-    except (KeyError, TypeError, AttributeError):
-        pass
-    # 3. Inside properties dict (fallback)
-    props = getattr(obj, "properties", None)
-    if isinstance(props, dict):
-        cat = props.get("category")
-        if cat:
-            return str(cat)
-    return None
+def _get_category(wall_obj) -> str | None:
+    """Get category from a bundle object's root-scope "General" properties."""
+    cat = wall_obj.get_string("category")
+    return str(cat) if cat else None
 
 
 # Categories collected for conditioning. Revit models curtain walls as three
@@ -319,55 +300,35 @@ def _is_target_category(category: str | None) -> bool:
     return "curtain" in category.lower()
 
 
-def _recursive_collect(obj, walls: list, visited: set) -> None:
-    """Recursively walk the object graph, collecting wall elements."""
-    obj_id = getattr(obj, "id", None) or id(obj)
-    if obj_id in visited:
-        return
-    visited.add(obj_id)
+def collect_walls(model) -> list[WallRecord]:
+    """Return wall and curtain-wall elements from a received bundle Model.
 
-    category = _get_category(obj)
-    if _is_target_category(category):
-        speckle_id = getattr(obj, "id", None) or ""
-        if speckle_id:
-            meta = get_wall_metadata(obj)
-            walls.append(WallRecord(
-                obj=obj,
-                object_id=speckle_id,
-                category=category or "",
-                assembly_code=get_assembly_code(obj),
-                **meta,
-            ))
-
-    # Recurse into all member properties
-    for prop_name in obj.get_member_names():
-        if prop_name in ("displayValue", "renderMaterial"):
-            continue  # skip geometry — not BIM data
-        try:
-            value = getattr(obj, prop_name, None)
-        except Exception:
-            continue
-        if value is None:
-            continue
-        if hasattr(value, "get_member_names"):
-            _recursive_collect(value, walls, visited)
-        elif isinstance(value, list):
-            for item in value:
-                if item is not None and hasattr(item, "get_member_names"):
-                    _recursive_collect(item, walls, visited)
-
-
-def collect_walls(root) -> list[WallRecord]:
-    """Traverse the object graph, returning wall and curtain-wall elements.
-
-    Uses a manual recursive traversal as the primary strategy — GraphTraversal
-    with empty rules can miss leaf objects nested inside Collections.
+    `model.objects` is already a flat list of every object in the version —
+    2026.9 has no nested `elements` tree to recurse (containment is a typed
+    relation now, not something a reader has to reconstruct), and dropping
+    curtain-panel-under-curtain-system SUBELEMENT nesting doesn't lose any
+    panels: every object appears in this flat list regardless of what it's
+    related to. See main.py's module docstring for where `model` comes from.
     """
     walls: list[WallRecord] = []
-    visited: set = set()
-    _recursive_collect(root, walls, visited)
+    for wall_obj in model.objects:
+        category = _get_category(wall_obj)
+        if not _is_target_category(category):
+            continue
+        application_id = wall_obj.application_id
+        if not application_id:
+            continue
+        meta = get_wall_metadata(wall_obj)
+        walls.append(WallRecord(
+            obj=wall_obj,
+            object_id=application_id,
+            category=category or "",
+            assembly_code=get_assembly_code(wall_obj),
+            **meta,
+        ))
 
     print(
-        f"[ConditioningPOC] Visited {len(visited)} objects, found {len(walls)} walls."
+        f"[ConditioningPOC] Visited {len(model.objects)} objects, "
+        f"found {len(walls)} walls."
     )
     return walls
