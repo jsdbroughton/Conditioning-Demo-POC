@@ -269,6 +269,8 @@ class ElementRecord:
     function: str
     type_mark: str
     assembly_code: str | None
+    host_function: str = ""     # Function of the wall this element is hosted in
+    parent_id: str | None = None  # application_id of the owning element, if any
 
     @property
     def is_level4_coded(self) -> bool:
