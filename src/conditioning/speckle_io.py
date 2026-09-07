@@ -1082,22 +1082,31 @@ class ConditionedVersions:
     walls_version_id: str | None
     all_model_name: str
     all_version_id: str | None
+    walls_error: str | None = None
+    all_error: str | None = None
 
 
 def _publish_bundle(
     automate_context: AutomationContext,
     output_model_name: str,
     model_description: str,
-    builder: BundleBuilder,
+    build: Callable[[], BundleBuilder],
     send_message: str,
-) -> tuple[object, str] | None:
-    """Create/reuse `output_model_name` and send3 `builder` into it.
+) -> tuple[tuple[object, str] | None, str | None]:
+    """Create/reuse `output_model_name`, build the bundle, send3 it.
 
-    Shared by both bundles create_conditioned_version() publishes — the only
-    difference between them is which builder function produced `builder` and
-    what the model's own name/description say. Returns (model, version_id)
-    on success, None on failure (logged, never raised — one bundle failing
-    to publish shouldn't take the other down with it).
+    Shared by both bundles create_conditioned_version() publishes. Returns
+    ((model, version_id), None) on success or (None, error_text) on failure
+    — never raises, so one bundle failing doesn't take the other down.
+
+    2026-09-07 (later still): `build` is a callable, not a built builder.
+    The first version took the builder as an argument, which meant an
+    exception INSIDE `_build_full_bundle()` was raised at the call site,
+    outside this guard — on the live Tower model (36k objects) the walls
+    bundle published and the run then died building the full one, with
+    nothing in the run summary saying so. Building inside the guard, and
+    returning the error text rather than only printing it, is what lets
+    create_conditioned_version() put the failure where a reviewer sees it.
     """
     try:
         output_model = _get_or_create_model(
@@ -1105,6 +1114,7 @@ def _publish_bundle(
             model_name=output_model_name,
             model_description=model_description,
         )
+        builder = build()
         result = operations.send3(
             automate_context.speckle_client.account,
             automate_context.automation_run_data.project_id,
@@ -1112,10 +1122,12 @@ def _publish_bundle(
             builder,
             SendOptions(message=send_message),
         )
-        return output_model, result.version_id
+        return (output_model, result.version_id), None
     except Exception as exc:
-        print(f"[ConditioningPOC] Publishing '{output_model_name}' failed: {exc}")
-        return None
+        error = f"{type(exc).__name__}: {exc}"
+        print(f"[ConditioningPOC] Publishing '{output_model_name}' failed: {error}")
+        traceback.print_exc()
+        return None, error
 
 
 def create_conditioned_version(
