@@ -358,6 +358,21 @@ def _signals(element: ElementRecord, rule: CategoryRule) -> list[_Signal]:
             METHOD_CONFIDENCE["heuristic_function"],
             f"the Revit Function parameter ({element.function})",
         ))
+    host_function = element.host_function.lower()
+    if host_function and host_function in rule.by_function:
+        # 2026-09-07: 2,563 of 3,668 doors on the live Core model had no
+        # Function of their own and stayed unplaced. The wall a door is cut
+        # into has one — an exterior wall's door is an exterior door — and
+        # it's a separate Revit fact about a separate element, so it's a
+        # real independent signal, not the category restated. Weaker than
+        # the door's own Function (an interior door can sit in an exterior
+        # wall at a vestibule), hence DEFAULT_RULE_CONFIDENCE, and where
+        # both exist they corroborate or conflict like any other pair.
+        signals.append((
+            rule.by_function[host_function], "heuristic_host_function",
+            DEFAULT_RULE_CONFIDENCE,
+            f"the Function parameter of its host wall ({element.host_function})",
+        ))
     if element.assembly_code and not element.is_level4_coded:
         section = legacy_code_section(element.assembly_code)
         if section:
