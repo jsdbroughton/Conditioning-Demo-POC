@@ -171,17 +171,21 @@ independently, since one can publish without the other:
   with either a derived code or `Status: not conditioned` — so nothing in
   this model is silently blank. Non-wall objects are coded by the
   **category engine** (`categories.py`): the wall engine's own mechanism —
-  every independent signal collected (Revit category, `Function`, a
-  type-name keyword, the section of any existing Assembly Code, and the
-  nearest already-coded neighbour of the same category), strongest decides,
+  every independent signal collected (Revit category, `Function`, the
+  `Function` of the wall a door or window is hosted in, a type-name keyword,
+  the section of any existing Assembly Code, and the nearest already-coded
+  neighbour of the same category), strongest decides,
   agreement lifts confidence and contradiction lowers it, same constants —
   applied to a per-category rule table. **That table is a set of judgements
   made without the estimator** (same status as the height bands); every
   result carries `Requires Verification: True` and a plain-English source,
-  and the report says so up front. Categories with no rule, or where no
-  signal fires (Rooms, Generic Models, unrecognised Mechanical Equipment, a
-  Door with no Function and no telling name), stay `not conditioned` rather
-  than guessed. Codes come from `acme_reference.py` — the client's full
+  and the report says so up front. Sub-elements (railing supports,
+  handrails, top rails) inherit their placed parent's code, tier and all.
+  Categories with no rule, or where no signal fires (Generic Models,
+  unrecognised Mechanical Equipment, a Door with no Function of its own or
+  its host wall's and no telling name), stay `not conditioned` rather than
+  guessed — and non-physical categories (Rooms, Areas, Levels, Grids,
+  separation lines) say plainly that no cost code applies. Codes come from `acme_reference.py` — the client's full
   structure, 679 codes generated from the fixture spreadsheet. Host/room/connection/assembly
   relationships are not carried over (see `_build_full_bundle()`'s
   docstring in `speckle_io.py`).
@@ -206,8 +210,8 @@ model, via `set_context_view`.
 | `Observed Wall Tag` | where the wall has a Type Mark | The wall's own `Type Mark`, e.g. `H6` |
 | `Observed Height` | where the wall has an `Unconnected Height` | Rounded to the nearest foot, e.g. `10'` — a per-instance value, not part of `Observed Type Attributes` |
 | `Observed Height Band` | where the wall has an `Unconnected Height` | `short (<4')`, `standard`, or `tall (>6m)` — the same height read as the band the `Full`-tier group hard-splits on, see `attributes.height_band` |
-| `Inferred Type Group` | all | The **Full**-tier group — the most specific of the three, e.g. `C1010.10 · inferred group A2a`. This is the group actually guaranteed never to mix two differently fire-rated, differently-acoustic-rated or differently-heighted walls |
-| `Inferred Group Label` / `Inferred Group Size` | all | What the Full-tier group's members share, and how many elements |
+| `Inferred Type Group (Fine Grained)` | all | The **Full**-tier group — the most specific of the three, e.g. `C1010.10 · inferred group A2a`. This is the group actually guaranteed never to mix two differently fire-rated, differently-acoustic-rated or differently-heighted walls |
+| `Inferred Group Label (Fine Grained)` / `Inferred Group Size` | all | What the Full-tier group's members share, and how many elements |
 | `Inferred Type Group (Coarse)` / `Inferred Group Label (Coarse)` | all | The same wall's **Coarse**-tier group — pure name similarity, e.g. `C1010.10 · inferred group A` — for rolling up to "which architect types basically resemble each other" regardless of fire/acoustic/height |
 | `Inferred Type Group (Fire/Acoustic)` / `Inferred Group Label (Fire/Acoustic)` | all | The same wall's **Fire/Acoustic**-tier group, e.g. `C1010.10 · inferred group A2` — Coarse re-split by (Fire Rating, Acoustic STC) only, before height |
 | `Inferred Group Description` | all | Plain-English rollup for the Full-tier group, e.g. `5 elements — Type Mark H6, Fire Rating SMOKE, Acoustic STC 35, Stud Size 6, Height Band standard` |
@@ -223,7 +227,7 @@ granularities you read — `Inferred Type Group (Coarse)` is judgement that
 can span a Fire Rating, Acoustic STC, Height Band, Type Mark or Stud Size
 boundary all at once (it's blind to all five); `(Fire/Acoustic)` still
 spans Type Mark, Stud Size and Height Band but never Fire Rating/Acoustic
-STC; the default `Inferred Type Group` (Full) never spans any of Fire
+STC; `Inferred Type Group (Fine Grained)` (Full) never spans any of Fire
 Rating, Acoustic STC or Height Band, only Type Mark/Stud Size — which is
 exactly what its `Inferred Group *` rollups report ("varies (...)") rather
 than hide. Neither `Observed` nor `Inferred` is a client classification,
