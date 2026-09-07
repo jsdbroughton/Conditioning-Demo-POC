@@ -87,6 +87,23 @@ def is_non_physical(category: str | None) -> bool:
     return any(marker in lower for marker in NON_PHYSICAL_CATEGORY_MARKERS)
 
 
+# Family/type names that mark an element as a clearance zone, symbol or other
+# annotation-in-disguise rather than construction — e.g. Revit's nested
+# `QA_Door-ADAclearance-Nested`, a Doors-category family that draws the ADA
+# swing clearance. 2026-09-07: one of these was coded as a door and would
+# have doubled the door count. Excluding by name is a single-field decision,
+# but in the SAFE direction — it can only withhold a code, never assign one.
+NON_PHYSICAL_NAME_MARKERS = (
+    "clearance", "annotation", "symbol", "placeholder", "dummy", "reference",
+)
+
+
+def is_non_physical_name(type_name: str, family: str) -> bool:
+    """True when the family/type name says this is a clearance/annotation element."""
+    lower = f"{type_name} {family}".lower()
+    return any(marker in lower for marker in NON_PHYSICAL_NAME_MARKERS)
+
+
 # Confidence for a category default whose Level 4 choice is a sound reading
 # within the right section rather than a determination — Tier 2 by design.
 DEFAULT_RULE_CONFIDENCE = 0.70
