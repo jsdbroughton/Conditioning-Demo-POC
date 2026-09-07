@@ -14,7 +14,7 @@ from collections import defaultdict
 
 from speckle_automate import AutomationContext
 
-from conditioning.attributes import extract_attributes
+from conditioning.attributes import bucket_height_ft, extract_attributes
 from conditioning.codes import (
     DEFAULT_CONDITIONING_KEY,
     METHOD_DESCRIPTIONS,

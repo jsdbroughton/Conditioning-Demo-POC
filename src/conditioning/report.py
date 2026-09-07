@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from conditioning.attributes import extract_attributes
+from conditioning.attributes import bucket_height_ft, extract_attributes
 from conditioning.codes import ACME_CODES, SIMILARITY_MATCH_THRESHOLD
 from conditioning.predict import Prediction
 from conditioning.walls import WallRecord, classify_walls
@@ -34,20 +34,34 @@ def _conf_str(confidence: float) -> str:
 
 
 def _observed_attributes_section(walls: list[WallRecord]) -> list[str]:
-    """Report fire rating / STC / stud size read from type names, and coverage.
+    """Report wall tag / fire rating / STC / stud size / height, and coverage.
 
-    Coverage is the point of this section as much as the values are. The
-    extraction assumes a naming convention, that convention holds completely
-    in some models and not at all in others, and a reader needs to know which
-    they are looking at before they trust a breakdown built on it.
+    Coverage is the point of this section as much as the values are. Wall
+    tag and fire rating can come from either a real Revit parameter or a
+    name-convention regex (see attributes.py's 2026-09-07 note); STC and
+    stud size are still name-only. Height comes from a real parameter and is
+    reported separately — see attributes.bucket_height_ft — because it is a
+    per-instance value, not a per-type one, and cannot share the same
+    coverage/summary machinery as the others without silently averaging over
+    real floor-to-floor variation.
     """
     counts: Counter = Counter()
     covered = 0
+    fire_rating_by_source: Counter = Counter()
+    height_covered = 0
     for wall in walls:
-        attrs = extract_attributes(wall.type_name)
+        attrs = extract_attributes(
+            wall.type_name,
+            fire_rating_param=wall.fire_rating,
+            wall_tag=wall.type_mark,
+        )
         if attrs:
             covered += 1
             counts[attrs.summary] += 1
+        if attrs.fire_rating_source:
+            fire_rating_by_source[attrs.fire_rating_source] += 1
+        if bucket_height_ft(wall.height_mm):
+            height_covered += 1
 
     lines = [
         "",

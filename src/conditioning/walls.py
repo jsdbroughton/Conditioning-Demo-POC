@@ -23,6 +23,35 @@ Data structure verified against a live client shell model (2026-07-17):
                               ["Construction"]["Width"]["value"]
   - Type Mark             → properties["Parameters"]["Type Parameters"]
                               ["Identity Data"]["Type Mark"]["value"]
+
+Two more verified against the live UKHC Core/Podium/Tower models (2026-09-07,
+queried directly via the EAV property dataset rather than assumed — see the
+2026-09-07 NOTES.md entry for the full coverage numbers):
+  - Fire Rating (str)     → properties["Parameters"]["Type Parameters"]
+                              ["Identity Data"]["Fire Rating"]["value"]
+                              A Type Parameter, same group as Type Mark — so
+                              it's constant across every instance of one
+                              type, unlike height below. Populated only on
+                              rated/smoke walls in the models checked (22.9%
+                              - 92.8% of walls, varying by source file); a
+                              plain NFR partition simply carries no value —
+                              blank means "presumed non-rated by omission",
+                              not "unknown". See attributes.py for how the
+                              value is normalised and combined with the
+                              name-derived fallback.
+  - Unconnected Height (feet) → properties["Parameters"]
+                              ["Instance Parameters"]["Constraints"]
+                              ["Unconnected Height"]["value"]
+                              An Instance Parameter — genuinely per-element,
+                              not per-type. Measured on the Podium model: one
+                              Type Mark ("H6") alone carries 38 distinct
+                              heights from 1.0 ft to 23.1 ft. Never cache or
+                              key on this the way Type Mark/Fire Rating can
+                              be (see attributes.bucket_height_ft).
+
+No separate "Wall Tag" parameter exists in any of the three models checked —
+what Kevin/Mike referred to on the call as "wall tag" is Type Mark, already
+extracted above.
 """
 
 from __future__ import annotations
