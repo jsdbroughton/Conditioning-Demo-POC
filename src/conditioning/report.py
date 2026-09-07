@@ -133,6 +133,8 @@ def _category_section(results: list) -> list[str]:
     behind them is a set of judgements the estimator has not yet reviewed.
     Says so up front rather than in a footnote.
     """
+    components = [r for r in results if r.method == "component"]
+    results = [r for r in results if r.method != "component"]
     rows: dict[tuple[str, str], list] = defaultdict(list)
     for result in results:
         rows[(result.category, result.code)].append(result)
@@ -162,6 +164,8 @@ def _category_section(results: list) -> list[str]:
         f"| Derived from category / Function / name | {heuristic_count} |",
         f"| Tier 1 / Tier 2 / Tier 3 | {tiers.get(1, 0)} / {tiers.get(2, 0)} "
         f"/ {tiers.get(3, 0)} |",
+        f"| Components of a parent element (not counted above) | "
+        f"{len(components)} |",
         "",
         "| Category | Level 4 Code | Description | Elements | Tiers | Methods |",
         "|----------|--------------|-------------|----------|-------|---------|",
