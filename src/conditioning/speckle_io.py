@@ -563,6 +563,8 @@ def attach_category_annotations(
     """
     by_key: dict[tuple[str, str, str], list] = defaultdict(list)
     for result in results:
+        if result.method == "component":
+            continue  # not a classification — nothing to annotate
         by_key[(result.category, result.code, result.method)].append(
             _ResultRef(result.object_id)
         )
@@ -577,7 +579,7 @@ def attach_category_annotations(
 
     tier3: dict[str, list] = defaultdict(list)
     for result in results:
-        if result.tier == 3:
+        if result.tier == 3 and result.method != "component":
             tier3[result.code].append(_ResultRef(result.object_id))
     for code, objs in sorted(tier3.items()):
         automate_context.attach_warning_to_objects(
