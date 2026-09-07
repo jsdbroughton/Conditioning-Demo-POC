@@ -55,9 +55,18 @@ On every triggered version, the function:
 5. Reads **fire rating, wall tag, height, acoustic rating and stud size**
    for each wall. Fire rating and wall tag prefer the wall's own Revit
    parameters (`Fire Rating`, `Type Mark` — verified 2026-09-07 against live
-   Turner models) and fall back to the element type name only where the
-   parameter is blank; acoustic rating and stud size still come from the
-   type name (a type called
+   Turner models). All Revit parameter reads — including `Function`,
+   `Assembly Code`, `Width` and `Unconnected Height` — go through
+   `walls._param()`/`_param_double()`, which try both the
+   `Parameters.Instance Parameters.<Group>.<Param>` and
+   `Parameters.Type Parameters.<Group>.<Param>` fully-qualified paths this
+   connector's bundle export actually uses; a bare `<Group>.<Param>` path
+   never matches either table and silently returns nothing (fixed
+   2026-09-07 — see `docs/NOTES.md`, this had been quietly sending every
+   interior wall through the "no signal" fallback and onto an exterior-wall
+   code). Fire rating and wall tag fall back to the element type name only
+   where the parameter is blank; acoustic rating and stud size still come
+   from the type name (a type called
    `Type H6 - Single Layer GWB - SMOKE - STC-35 - 6" Stud` yields
    `SMOKE · STC-35 · 6" Stud`). Height is read per-instance from
    `Unconnected Height` and rounded to the nearest foot, so two walls at
