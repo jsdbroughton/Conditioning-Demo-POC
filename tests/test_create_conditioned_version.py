@@ -116,6 +116,7 @@ class _FakeBundleObject:
         self.application_id = application_id
         self.k = k
         self.properties: dict | None = None
+        self.properties_written = False
         self.name = None
         self.speckle_type = None
         self.source_type = None
@@ -129,6 +130,9 @@ class _FakeBundleObject:
 
     def set_properties(self, properties=None, name=None, speckle_type=None,
                         source_type=None, units=None, **kwargs):
+        if self.properties_written:
+            raise RuntimeError("properties already written")  # as the real one
+        self.properties_written = True
         self.properties = properties
         self.name = name
         self.speckle_type = speckle_type
@@ -609,3 +613,73 @@ class TestOutputModelNaming:
         )
         assert versions.walls_model_name == "Conditioned/Walls/Shell"
         assert versions.all_model_name == "Conditioned/All/Shell"
+
+
+class TestPublishFailuresAreLoud:
+    """A bundle that fails to build or send is reported, never silently absent."""
+
+    def test_duplicate_application_ids_are_skipped_not_fatal(self, monkeypatch):
+        """Two received objects with one id: first wins, publish still succeeds."""
+        a = FakeModelObject(application_id="dup", properties={"category": "Stairs"})
+        b = FakeModelObject(application_id="dup", properties={"category": "Doors"})
+        builder = _publish_all_bundle(monkeypatch, FakeModel([a, b]), walls=[])
+        assert len(builder.objects) == 1
+        assert builder.objects["dup"].properties["category"] == "Stairs"
+
+    def test_build_error_is_captured_on_the_result(self, monkeypatch):
+        """A _build_full_bundle exception lands on all_error; walls still publish."""
+        ctx = _FakeAutomationContext()
+        monkeypatch.setattr(speckle_io, "BundleBuilder", _FakeBundleBuilder)
+        monkeypatch.setattr(
+            speckle_io.operations, "send3", lambda *a, **k: _FakeSendResult("v"),
+        )
+
+        def boom(*args, **kwargs):
+            raise ValueError("level 'L1' elevation differs")
+
+        monkeypatch.setattr(speckle_io, "_build_full_bundle", boom)
+        versions = create_conditioned_version(
+            ctx, FakeModel([]), walls=[], predictions=[]
+        )
+        assert versions.walls_version_id == "v"
+        assert versions.all_version_id is None
+        assert versions.all_error == "ValueError: level 'L1' elevation differs"
+        # Only the walls model made it into the results view.
+        assert len(ctx.context_view_calls[0]["resource_ids"]) == 1
+
+
+class TestComponentsAreNotCounted:
+    """A component has no 'Level 4 Code' key, so counts of coded elements skip it."""
+
+    def test_component_entry_has_parent_code_but_no_own_code(self, monkeypatch):
+        """Status component; parent's code under its own name; no Level 4 Code key."""
+        from conditioning.categories import CategoryResult
+        from conditioning.codes import DEFAULT_CONDITIONING_KEY
+
+        support = FakeModelObject(
+            application_id="s1", properties={"category": "Supports"}
+        )
+        ctx = _FakeAutomationContext()
+        monkeypatch.setattr(speckle_io, "BundleBuilder", _FakeBundleBuilder)
+        captured: list = []
+
+        def fake_send3(account, project_id, model_id, builder, options=None):
+            captured.append(builder)
+            return _FakeSendResult(f"version-{len(captured)}")
+
+        monkeypatch.setattr(speckle_io.operations, "send3", fake_send3)
+        result = CategoryResult(
+            object_id="s1", category="Supports", code="B1080.50", confidence=0.7,
+            tier=2, method="component",
+            basis="a component of its parent element (Railings)",
+        )
+        create_conditioned_version(
+            ctx, FakeModel([support]), walls=[], predictions=[],
+            category_results=[result],
+        )
+        cond = captured[1].objects["s1"].properties[DEFAULT_CONDITIONING_KEY]
+        assert cond["Status"] == "component"
+        assert "Level 4 Code" not in cond
+        assert cond["Parent Level 4 Code"] == "B1080.50"
+        assert cond["Parent Level 4 Code Description"] == "Stair Railings"
+        assert "counted with the parent" in cond["Level 4 Code Source"]

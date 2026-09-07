@@ -237,8 +237,8 @@ class TestRelationsAsSignals:
         assert result.code == "B2050.10"
         assert result.confidence > METHOD_CONFIDENCE["heuristic_function"]
 
-    def test_sub_elements_inherit_a_placed_parent(self):
-        """Railing supports/handrails take the railing's code, tier and all."""
+    def test_sub_elements_are_components_not_classified_items(self):
+        """Railing supports/handrails get no code of their own; parent noted."""
         railing = _obj("r1", "Railings", type="Guardrail Pipe")
         support = _obj("s1", "Supports", parent=railing)
         handrail = _obj("h1", "Handrails", type="Circular", parent=railing)
@@ -248,14 +248,37 @@ class TestRelationsAsSignals:
         by_id = {r.object_id: r for r in results}
         assert by_id["r1"].code == "B1080.50"
         for child in ("s1", "h1"):
-            assert by_id[child].code == "B1080.50"
-            assert by_id[child].method == "heuristic_parent"
-            assert by_id[child].tier == by_id["r1"].tier
-            assert "parent element (Railings)" in by_id[child].basis
+            assert by_id[child].method == "component"
+            assert by_id[child].code == "B1080.50"  # parent's, for traceability
+            assert "component of its parent element (Railings)" in by_id[child].basis
 
-    def test_child_of_an_unplaced_parent_stays_unplaced(self):
-        """Inheritance carries a real result, never a blank."""
+    def test_component_of_an_unplaced_parent_is_still_a_component(self):
+        """A part of an uncoded Generic Model is a component with no parent code."""
         gm = _obj("g1", "Generic Models", type="Thing")
         part = _obj("p1", "Supports", parent=gm)
         results = classify_categories(FakeModel([gm, part]), exclude_ids=set())
-        assert results == []
+        (only,) = results
+        assert (only.object_id, only.method, only.code) == ("p1", "component", "")
+        assert "Generic Models" in only.basis
+
+    def test_nested_same_category_family_is_a_component_even_with_signals(self):
+        """Nested same-category door family with signals is still a component."""
+        wall = _obj("w1", "Walls", function="Exterior")
+        door = _obj("d1", "Doors", function="Interior", host=wall)
+        nested = _obj(
+            "n1", "Doors", type="QA_Door-ADAclearance-Nested", host=wall, parent=door
+        )
+        results = classify_categories(
+            FakeModel([door, nested]), exclude_ids={"w1"}
+        )
+        by_id = {r.object_id: r for r in results}
+        assert by_id["d1"].code == "C1030.10"
+        assert by_id["n1"].method == "component"
+
+    def test_clearance_family_is_never_classified_even_standalone(self):
+        """A clearance/annotation family with no parent gets no code either."""
+        wall = _obj("w1", "Walls", function="Exterior")
+        clearance = _obj(
+            "c1", "Doors", type="Door Clearance Zone", function="Exterior", host=wall
+        )
+        assert _classify(clearance) is None
