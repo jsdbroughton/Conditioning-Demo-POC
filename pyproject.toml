@@ -13,7 +13,19 @@ readme = "README.md"
 license = "Apache-2.0"
 keywords = ["speckle", "automate", "bim", "aec"]
 
-dependencies = ["specklepy==2026.8.1"]
+dependencies = [
+    # 2026.9 pre-release (beta — PyPI flags it "may not be stable for
+    # production use") is the first specklepy build that can receive a
+    # 2026.9 connector's bundle-only (parquet) versions at all — 2026.8.1
+    # 404s on them. Pinned to the exact beta build per Speckle's own
+    # migration guidance (https://docs.speckle.systems/next/developers/sdks/
+    # python/breaking-changes) rather than a `>=` range, since this whole
+    # dependency lives pre-1.0 and PRs #502-524 show the bundle spec itself
+    # still moving within the alpha/beta cycle (re-vendored twice in one
+    # week). The `bundle` extra pulls in pyarrow/duckdb, required for
+    # operations.receive3/send3 and everything in specklepy.bundle.
+    "specklepy[bundle]==2026.9.0b3",
+]
 
 [project.optional-dependencies]
 dev = [
