@@ -60,29 +60,43 @@ def _observed_attributes_section(walls: list[WallRecord]) -> list[str]:
         return lines + ["No elements analysed."]
 
     pct = covered / len(walls)
+    height_pct = height_covered / len(walls)
     lines += [
-        f"Fire rating, acoustic rating and stud size read directly from "
-        f"element type names — **{covered:,} of {len(walls):,} elements "
-        f"({pct:.0%})** are named in a way that yields any of them.",
+        f"Wall tag (Type Mark), fire rating, acoustic rating and stud size — "
+        f"**{covered:,} of {len(walls):,} elements ({pct:.0%})** yield at "
+        f"least one of them.",
         "",
-        "This is the one place the function assumes a naming convention, and "
-        "it is assumed rather than agreed. Where a model names walls "
-        "`Type H6 - Single Layer GWB - SMOKE - STC-35 - 6\" Stud` these values "
-        "are exact. Where it names them `CW_Unitized_Spandrel` or `Empty` "
-        "there is nothing to read and the elements are simply absent from the "
-        "table below — a low coverage figure describes the naming, not the "
-        "model's quality.",
+        "Wall tag is always read from the Type Mark parameter. Fire rating "
+        "prefers the real Fire Rating parameter where the wall carries one "
+        f"({fire_rating_by_source.get('parameter', 0):,} elements) and falls "
+        "back to reading it off the type name otherwise "
+        f"({fire_rating_by_source.get('name', 0):,} elements) — the naming "
+        "convention is no longer the only source, but it's still the only "
+        "way to get acoustic rating (STC) and stud size, and the only "
+        "fallback for fire rating on a wall whose parameter is blank. Where "
+        "neither the parameter nor the name gives anything at all — "
+        "`CW_Unitized_Spandrel`, `Empty` — the elements are simply absent "
+        "from the table below; a low figure describes the naming/parameters, "
+        "not the model's quality.",
+        "",
+        f"Height (Unconnected Height, a real parameter, rounded to the "
+        f"nearest foot) is recorded separately: "
+        f"**{height_covered:,} of {len(walls):,} elements ({height_pct:.0%})**. "
+        "It is never folded into the summary column below, because it's a "
+        "per-instance value — one wall type can span dozens of real heights "
+        "— and merging it into a per-type summary would silently pick one "
+        "and hide the rest.",
         "",
     ]
     if not counts:
         return lines + [
-            "No element type names in this model follow a recognisable "
-            "rating/STC/stud convention, so no attributes were extracted.",
+            "No elements in this model yielded a wall tag, fire rating, STC "
+            "or stud size from either their parameters or their type names.",
         ]
 
     lines += [
-        "| Fire rating · STC · Stud | Elements |",
-        "|--------------------------|----------|",
+        "| Wall Tag · Fire rating · STC · Stud | Elements |",
+        "|--------------------------------------|----------|",
     ]
     for summary, count in counts.most_common():
         lines.append(f"| {summary} | {count} |")

@@ -58,6 +58,13 @@ class WallRecord:
     width_mm: float         # Construction > Width (feet) × 304.8
     level: str              # wall.level (plain string in v3)
     assembly_code: str | None  # Identity Data > Assembly Code; None if absent
+    # Both added 2026-09-07, after the client call asking for wall
+    # sub-grouping to weigh in fire rating and height alongside wall tag
+    # (type_mark, above) and family type name (type_name, above). Defaulted
+    # so existing WallRecord(...) call sites — test fixtures included — don't
+    # need updating just to keep constructing one.
+    fire_rating: str = ""   # Identity Data > Fire Rating (Type Parameters)
+    height_mm: float = 0.0  # Instance Params > Constraints > Unconnected Height × 304.8
 
     @property
     def is_coded(self) -> bool:
@@ -135,6 +142,29 @@ def _type_params(wall_obj) -> dict:
     return tp if isinstance(tp, dict) else {}
 
 
+def _instance_params(wall_obj) -> dict:
+    """Return the Instance Parameters dict from a wall's properties.
+
+    Reads properties["Parameters"]["Instance Parameters"] — the sibling of
+    _type_params()'s "Type Parameters". Needed because Unconnected Height is
+    an instance-level Revit parameter (it varies per element, not per type —
+    see the module docstring and attributes.bucket_height_ft), so it lives
+    under a different top-level group than Fire Rating and Type Mark.
+    """
+    props = getattr(wall_obj, "properties", None)
+    if not props:
+        return {}
+    if isinstance(props, dict):
+        params = props.get("Parameters", {})
+    else:
+        params = getattr(props, "Parameters", {}) or {}
+    if isinstance(params, dict):
+        ip = params.get("Instance Parameters", {})
+    else:
+        ip = getattr(params, "Instance Parameters", {}) or {}
+    return ip if isinstance(ip, dict) else {}
+
+
 def _pval(group: dict, name: str):
     """Pull the .value out of a parameter entry in a group dict."""
     entry = group.get(name) if isinstance(group, dict) else None
@@ -185,8 +215,9 @@ def get_wall_metadata(wall_obj) -> dict:
     identity     = tp.get("Identity Data", {})
     construction = tp.get("Construction", {})
 
-    function  = str(_pval(construction, "Function")  or "").strip()
-    type_mark = str(_pval(identity,     "Type Mark") or "").strip()
+    function     = str(_pval(construction, "Function")     or "").strip()
+    type_mark    = str(_pval(identity,     "Type Mark")    or "").strip()
+    fire_rating  = str(_pval(identity,     "Fire Rating")  or "").strip()
 
     width_raw = _pval(construction, "Width") or 0.0
     try:
